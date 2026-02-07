@@ -12,9 +12,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v16", 
+    page_title="NetOpt v18: Custom", 
     layout="wide", 
-    page_icon="📉",
+    page_icon="🤖",
     initial_sidebar_state="expanded"
 )
 
@@ -40,6 +40,19 @@ st.markdown("""
     div[data-testid="stMetric"] { background-color: #0A0A0A; border: 1px solid #222; padding: 5px !important; border-left: 3px solid #00FF41; }
     div[data-testid="stMetricValue"] { font-size: 18px !important; color: #00FF41 !important; }
     div[data-testid="stMetricLabel"] { font-size: 10px !important; color: #666 !important; }
+    
+    /* AGENT TERMINAL STYLE */
+    .agent-terminal {
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        color: #00FF41;
+        background-color: #000;
+        border: 1px solid #333;
+        padding: 10px;
+        height: 150px;
+        overflow-y: auto;
+        margin-bottom: 20px;
+    }
     
     /* REMOVE ALL PLOT PADDING/MARGINS */
     .main .block-container { padding: 1rem; }
@@ -112,70 +125,116 @@ class BioEngine:
         # DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 5. STATE MANAGEMENT ---
-if 'engine_v16' not in st.session_state:
-    st.session_state.engine_v16 = None
+# --- 5. THE AGENT BRAIN ---
+class NetworkAgent:
+    def __init__(self):
+        self.log = []
+
+    def optimize(self, current_nodes, traffic_load):
+        best_efficiency = 0
+        best_params = (0.5, 0.5) 
+        strategies = [
+            (0.6, 0.4, "Low Cost Strategy"), 
+            (0.8, 0.7, "Balanced Strategy"), 
+            (0.95, 1.2, "High Redundancy Strategy")
+        ]
+        return strategies
+
+# --- 6. STATE MANAGEMENT ---
+if 'engine_v18' not in st.session_state:
+    st.session_state.engine_v18 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
     st.session_state.history = []
+if 'agent_log' not in st.session_state:
+    st.session_state.agent_log = ["Agent initialized. Waiting for command..."]
+if 'agent_active' not in st.session_state:
+    st.session_state.agent_active = False
 
-# --- 6. SIDEBAR CONTROLS ---
+# --- 7. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
-is_running = st.sidebar.toggle("🟢 SYSTEM ONLINE", value=True)
+control_mode = st.sidebar.radio("Operation Mode", ["Manual Operator", "🤖 Autonomous Agent"], horizontal=True)
 
-# 1. SCENARIO
-st.sidebar.markdown("#### 1. SCENARIO CONFIG")
-preset = st.sidebar.selectbox("Region Topology", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
-if st.sidebar.button("⚠️ LOAD TOPOLOGY"):
-    st.session_state.engine_v16 = None
+# 1. SCENARIO CUSTOMIZATION
+st.sidebar.markdown("#### 1. NETWORK SCALE")
+node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_state.nodes))
+reshuffle = st.sidebar.button("🎲 Reshuffle Locations")
+
+if reshuffle or len(st.session_state.nodes) != node_count:
+    st.session_state.engine_v18 = None
     st.session_state.history = []
-    if preset == "Diamond (Regional)":
-        st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
-    elif preset == "Pentagon Ring":
-        c, r = (150, 150), 90
-        angles = np.linspace(0, 2*np.pi, 6)[:-1]
-        st.session_state.nodes = [[c[0] + r*np.cos(a), c[1] + r*np.sin(a)] for a in angles]
-    elif preset == "Grid (Urban)":
-        st.session_state.nodes = [[x, y] for x in range(80, 280, 70) for y in range(80, 280, 70)]
-    elif preset == "Hub-Spoke (Enterprise)":
-        nodes = [[150, 150]]
-        nodes.extend([[150 + 110*np.cos(a), 150 + 110*np.sin(a)] for a in np.linspace(0, 2*np.pi, 7)[:-1]])
-        st.session_state.nodes = nodes
+    st.session_state.agent_active = False
+    st.session_state.agent_log = [f"Network resized to {node_count} nodes. Agent standing by."]
+    
+    # GENERATE RANDOM NODES
+    # Ensure they aren't too close to edges
+    new_nodes = []
+    for _ in range(node_count):
+        new_nodes.append([np.random.randint(50, 250), np.random.randint(50, 250)])
+    st.session_state.nodes = new_nodes
     st.rerun()
 
 st.sidebar.markdown("---")
 
-# 2. BUSINESS
-st.sidebar.markdown("#### 2. BUSINESS LOGIC")
-capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, 0.8, help="Budget Constraint. High = Minimal Cabling. Low = Mesh Network.")
+# 2. PARAMETERS (Context Sensitive)
+if control_mode == "Manual Operator":
+    st.sidebar.markdown("#### 2. MANUAL OVERRIDE")
+    capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, 0.8)
+    redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, 0.7)
+    traffic_load = st.sidebar.slider("Load (Agents)", 1000, 10000, 5000)
+    latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
+    terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
+    
+    st.session_state.agent_active = False
+
+else: # AGENT MODE
+    st.sidebar.markdown("#### 2. AGENT OBJECTIVES")
+    st.sidebar.info(f"Agent managing {node_count} nodes. Target Efficiency > 85%.")
+    traffic_load = 5000 # Agent Standard
+    
+    # AGENT LOGIC SIMULATION
+    if not st.session_state.agent_active:
+        st.session_state.agent_log.append("Agent: Taking control of parameters...")
+        st.session_state.agent_log.append(f"Agent: Analyzing {node_count}-node topology...")
+        st.session_state.agent_active = True
+    
+    # Dynamic Agent Decisions (Simulated for visual effect)
+    import time
+    epoch = int(time.time()) % 3
+    if epoch == 0:
+        capex_pref, redundancy_pref = 0.9, 0.6
+        status = "Agent: Testing Low-Cost Vector..."
+    elif epoch == 1:
+        capex_pref, redundancy_pref = 0.7, 0.9
+        status = "Agent: Testing Redundancy Vector..."
+    else:
+        capex_pref, redundancy_pref = 0.8, 0.7
+        status = "Agent: Refining Optimal Solution..."
+        
+    if status != st.session_state.agent_log[-1]:
+        st.session_state.agent_log.append(status)
+        if len(st.session_state.agent_log) > 6: st.session_state.agent_log.pop(0)
+    
+    # Fixed Physics for Agent
+    latency_pref = 3.0
+    terrain_diff = 0.1
+
+# Derived logic
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
-redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, 0.7, help="Risk Tolerance. High = Build Backup Loops. Low = Single Point of Failure OK.")
-traffic_load = st.sidebar.slider("Projected Load (Agents)", 1000, 10000, 5000, help="Simulated Network Congestion.")
 
-st.sidebar.markdown("---")
+# --- 8. INITIALIZE ---
+if st.session_state.engine_v18 is None or st.session_state.engine_v18.num_agents != traffic_load:
+    st.session_state.engine_v18 = BioEngine(300, 300, traffic_load)
 
-# 3. PHYSICS
-st.sidebar.markdown("#### 3. PHYSICS IMPACT")
-latency_pref = st.sidebar.slider("Transmission Speed (C)", 1.0, 5.0, 2.0, help="Simulates Signal Propagation Speed. High = HFT/Direct Lines. Low = Standard Fiber.")
-
-# 4. ENVIRONMENT
-st.sidebar.markdown("#### 4. ENVIRONMENTAL FACTORS")
-terrain_diff = st.sidebar.slider("Signal Interference (Noise)", 0.05, 0.5, 0.1, help="Simulates physical obstacles/EM interference. High values cause erratic routing.")
-
-# --- 7. INITIALIZE ---
-if st.session_state.engine_v16 is None or st.session_state.engine_v16.num_agents != traffic_load:
-    st.session_state.engine_v16 = BioEngine(300, 300, traffic_load)
-
-engine = st.session_state.engine_v16
+engine = st.session_state.engine_v18
 nodes_arr = np.array(st.session_state.nodes)
 
-if is_running:
-    for _ in range(12): 
-        # Pass all 4 variable sets
-        engine.step(st.session_state.nodes, latency_pref, decay, redundancy_pref, terrain_diff)
+# RUN LOOP
+for _ in range(12): 
+    engine.step(st.session_state.nodes, latency_pref, decay, redundancy_pref, terrain_diff)
 
-# --- 8. METRICS & ANALYSIS ---
+# --- 9. METRICS & ANALYSIS ---
 if len(nodes_arr) > 1:
     mst_cost = minimum_spanning_tree(distance_matrix(nodes_arr, nodes_arr)).toarray().sum()
 else:
@@ -184,41 +243,40 @@ else:
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
-# --- 9. DASHBOARD UI ---
+# --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NETWORK EFFICIENCY & TOPOLOGY OPTIMIZER")
-    st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: v16 STRATEGIC PLANNER")
+    st.markdown("### 🕸️ NET-OPT v18: CUSTOM ARCHITECT")
+    mode_label = "AUTONOMOUS" if control_mode == "🤖 Autonomous Agent" else "MANUAL"
+    st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
 # DYNAMIC ANALYST REPORT
 report_color = "#00FF41" if capex_efficiency > 50 else "#FFA500"
-latency_status = "ULTRA-LOW (HFT)" if latency_pref > 3.0 else "STANDARD"
-terrain_status = "HOSTILE" if terrain_diff > 0.3 else "STABLE"
 
 st.markdown(f"""
 <div style="border: 1px solid #333; padding: 10px; border-radius: 5px; background-color: #0A0A0A; margin-bottom: 10px;">
-    <span style="color: #888; font-family: monospace; font-size: 12px;">ANALYST SUMMARY:</span><br>
+    <span style="color: #888; font-family: monospace; font-size: 12px;">SYSTEM STATUS:</span><br>
     <span style="color: {report_color}; font-family: monospace; font-size: 14px;">
-    > <b>{latency_status} LATENCY</b> protocol active. Routes prioritized for straight-line speed.<br>
-    > <b>{terrain_status} TERRAIN</b> detected. Signal noise requires signal boosting (thicker cabling).<br>
-    > Net Result: <b>{int(capex_efficiency)}% CAPEX Efficiency</b>. { "Deployment Approved." if capex_efficiency > 60 else "Review Budget."}
+    > Current Efficiency: <b>{int(capex_efficiency)}%</b>.<br>
+    > Network Size: <b>{len(nodes_arr)} Regional Hubs</b>.<br>
     </span>
 </div>
 """, unsafe_allow_html=True)
 
+# METRICS
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
-m2.metric("MINIMUM VIABLE (MST)", f"{int(mst_cost)} km")
-m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume - mst_cost)} redundant", delta_color="inverse")
+m2.metric("MINIMUM VIABLE", f"{int(mst_cost)} km")
+m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume - mst_cost)}", delta_color="inverse")
 m4.metric("PHYSICS C", f"{latency_pref}x")
-m5.metric("CAPEX SAVINGS", f"{int(capex_efficiency)}%", "vs. Mesh")
+m5.metric("EFFICIENCY", f"{int(capex_efficiency)}%")
 
-# --- 10. VISUALIZATION TRIFECTA ---
+# --- 11. VISUALIZATION & AGENT LOG ---
 col_vis1, col_vis2, col_stats = st.columns([1, 1, 1.2])
 
 # 1. BIOLOGICAL SOLVER
 with col_vis1:
-    st.markdown("**1. LATENCY TERRAIN (Solver)**")
+    st.markdown("**1. LATENCY TERRAIN**")
     fig1, ax1 = plt.subplots(figsize=(3.5, 3.5)) 
     disp_map = np.log1p(engine.trail_map)
     ax1.imshow(disp_map, cmap='magma', origin='upper') 
@@ -227,55 +285,44 @@ with col_vis1:
     ax1.axis('off')
     fig1.tight_layout(pad=0)
     st.pyplot(fig1, use_container_width=True)
-    st.caption("Heatmap shows packet congestion. High Latency Priority forces straighter, hotter paths.")
 
 # 2. SCHEMATIC
 with col_vis2:
-    st.markdown("**2. NETWORK BLUEPRINT (Output)**")
+    st.markdown("**2. NETWORK BLUEPRINT**")
     fig2, ax2 = plt.subplots(figsize=(3.5, 3.5))
     ax2.set_xlim(0, 300); ax2.set_ylim(300, 0)
     
     y_weak, x_weak = np.where((engine.trail_map > 1.0) & (engine.trail_map < 3.0))
     if len(x_weak) > 0:
-        ax2.scatter(x_weak, y_weak, c='#0055FF', s=0.2, alpha=0.3, label="Redundancy")
+        ax2.scatter(x_weak, y_weak, c='#0055FF', s=0.2, alpha=0.3)
         
     y_core, x_core = np.where(engine.trail_map >= 3.0)
     if len(x_core) > 0:
-        ax2.scatter(x_core, y_core, c='#00FF41', s=0.8, alpha=0.9, label="Backbone")
+        ax2.scatter(x_core, y_core, c='#00FF41', s=0.8, alpha=0.9)
     
     if len(nodes_arr) > 0:
         ax2.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00FF41', s=50, marker='s', edgecolors='white', zorder=10)
-        for i, (nx, ny) in enumerate(nodes_arr):
-            ax2.text(nx+5, ny-5, f"DC-{i+1}", color='white', fontsize=6, fontfamily='monospace')
 
     ax2.axis('off')
     fig2.tight_layout(pad=0)
     st.pyplot(fig2, use_container_width=True)
-    st.caption("Green = Core Backbone. Blue = Failover. Terrain difficulty adds jitter to these paths.")
 
-# 3. TELEMETRY
+# 3. AGENT TERMINAL (The New "Agentic" Feature)
 with col_stats:
-    st.markdown("**3. COST CONVERGENCE**")
-    st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
-    if len(st.session_state.history) > 80: st.session_state.history.pop(0)
-    
-    chart_data = pd.DataFrame(st.session_state.history)
-    fig3, ax3 = plt.subplots(figsize=(4, 2.5))
-    
-    if not chart_data.empty:
-        ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Optimal (MST)")
-        ax3.plot(chart_data["Bio-Solver"], color='#00FF41', linewidth=1.5, label="Actual Cost")
-        
-    ax3.grid(color='#222', linestyle='-', linewidth=0.5)
-    ax3.spines['bottom'].set_color('#444')
-    ax3.spines['left'].set_color('#444')
-    ax3.spines['top'].set_visible(False)
-    ax3.spines['right'].set_visible(False)
-    ax3.legend(frameon=False, labelcolor='#888', fontsize=8, loc='upper right')
-    
-    st.pyplot(fig3, use_container_width=True)
-    st.caption("Convergence tracking. Note how High Latency/Terrain settings raise the 'Actual Cost' curve.")
+    if control_mode == "🤖 Autonomous Agent":
+        st.markdown("**3. AGENT THINKING PROCESS**")
+        log_html = "<div class='agent-terminal'>"
+        for line in st.session_state.agent_log:
+            log_html += f"> {line}<br>"
+        log_html += "<span style='animation: blink 1s infinite;'>_</span></div>"
+        st.markdown(log_html, unsafe_allow_html=True)
+    else:
+        st.markdown("**3. COST CONVERGENCE**")
+        st.session_state.history.append({"Baseline": float(mst_cost), "Actual": float(cable_volume)})
+        if len(st.session_state.history) > 80: st.session_state.history.pop(0)
+        chart_data = pd.DataFrame(st.session_state.history)
+        st.line_chart(chart_data, height=180, color=["#444444", "#00FF41"])
 
-if is_running:
-    time.sleep(0.01)
-    st.rerun()
+# AUTO-LOOP
+time.sleep(0.01)
+st.rerun()
