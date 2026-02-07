@@ -6,17 +6,16 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
 import pandas as pd
 import time
-import io
 
-# --- 1. DARK MODE & UI CONFIG ---
+# --- 1. DARK MODE & STEALTH CSS ---
 st.set_page_config(
-    page_title="Neuromorphic Topology V7", 
+    page_title="Neuromorphic Topology V8", 
     layout="wide", 
     page_icon="🕸️",
     initial_sidebar_state="expanded"
 )
 
-# FORCE TOTAL BLACKOUT (Fixes white sidebar)
+# FORCE TOTAL BLACKOUT (Stealth Mode)
 st.markdown("""
 <style>
     /* MAIN CONTAINER */
@@ -28,19 +27,15 @@ st.markdown("""
         border-right: 1px solid #111 !important;
     }
     
-    /* PLOT BACKGROUNDS */
-    div[data-testid="stImage"] { background-color: transparent !important; }
-    
     /* INPUTS, DROPDOWNS & TEXT AREAS */
     .stSelectbox div[data-baseweb="select"] > div, 
     div[data-baseweb="base-input"], 
     input.st-ai, 
-    textarea.st-ai {
-        background-color: #0a0a0a !important;
-        border: 1px solid #333 !important;
+    textarea.st-ai,
+    .stSlider div[data-baseweb="slider"] {
         color: #00E5FF !important;
     }
-    
+
     /* DROPDOWN MENU ITEMS */
     ul[data-baseweb="menu"] { background-color: #000000 !important; border: 1px solid #333; }
     li[data-baseweb="option"] { color: #00E5FF !important; }
@@ -51,6 +46,7 @@ st.markdown("""
         border: 1px solid #333 !important;
         background-color: #000000 !important;
         transition: all 0.3s;
+        font-family: 'Courier New', monospace;
     }
     .stButton>button:hover {
         border-color: #00E5FF !important;
@@ -60,8 +56,8 @@ st.markdown("""
 
     /* TEXT & METRICS */
     h1, h2, h3, h4, p, label { color: #00E5FF !important; font-family: 'Courier New', monospace; }
-    div[data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 24px; }
-    div[data-testid="stMetricLabel"] { color: #666 !important; }
+    div[data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 20px; }
+    div[data-testid="stMetricLabel"] { color: #666 !important; font-size: 10px; }
     
     /* HIDE DEFAULT STREAMLIT ELEMENTS */
     #MainMenu {visibility: hidden;}
@@ -84,11 +80,8 @@ class BioEngine:
         self.trail_map = np.zeros((height, width))
         self.steps = 0
 
-    def step(self, nodes, speed=2.0, decay=0.92):
+    def step(self, nodes, speed, decay, sensor_angle=0.7, sensor_dist=9.0):
         self.steps += 1
-        # SENSING PARAMETERS
-        sensor_angle = 0.7
-        sensor_dist = 9.0
         
         # 1. SENSE
         angles = self.agents[:, 2]
@@ -134,16 +127,16 @@ class BioEngine:
         # 6. DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 3. SESSION STATE (Versioning fixes the crash) ---
-# Key changed to 'engine_v7' to force a fresh start and avoid TypeErrors
-if 'engine_v7' not in st.session_state:
-    st.session_state.engine_v7 = None
+# --- 3. SESSION STATE ---
+# Key 'engine_v8' ensures fresh start
+if 'engine_v8' not in st.session_state:
+    st.session_state.engine_v8 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[100, 100], [200, 100], [200, 200], [100, 200], [150, 150]]
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- 4. SIDEBAR CONTROLS ---
+# --- 4. SIDEBAR CONTROLS (RESTORED!) ---
 st.sidebar.title("🎛️ SYSTEM KERNEL")
 is_running = st.sidebar.toggle("🟢 SYSTEM ONLINE", value=True)
 
@@ -151,7 +144,7 @@ st.sidebar.markdown("### 🗺️ TOPOLOGY PRESETS")
 preset = st.sidebar.selectbox("Select Layout", ["Square Loop", "Pentagon", "Random Scatter", "Hub & Spoke"])
 
 if st.sidebar.button("⚠️ REBOOT SIMULATION"):
-    st.session_state.engine_v7 = None # Force reset
+    st.session_state.engine_v8 = None
     st.session_state.history = []
     if preset == "Square Loop":
         st.session_state.nodes = [[100, 100], [200, 100], [200, 200], [100, 200]]
@@ -167,118 +160,111 @@ if st.sidebar.button("⚠️ REBOOT SIMULATION"):
         st.session_state.nodes = nodes
     st.rerun()
 
-st.sidebar.markdown("### ⚡ STRESS TEST")
-if st.sidebar.button("💥 KILL RANDOM NODE"):
-    if len(st.session_state.nodes) > 2:
-        st.session_state.nodes.pop(np.random.randint(0, len(st.session_state.nodes)))
+st.sidebar.markdown("---")
+# RESTORED PHYSICS VARIABLES
+with st.sidebar.expander("⚙️ PHYSICS PARAMETERS", expanded=True):
+    agent_count = st.slider("Particle Flux", 1000, 10000, 5000)
+    decay_rate = st.slider("Entropy Decay", 0.90, 0.99, 0.92)
+    speed_val = st.slider("Propagation C", 1.0, 5.0, 2.0)
 
 # --- 5. INITIALIZE ENGINE ---
-if st.session_state.engine_v7 is None:
-    st.session_state.engine_v7 = BioEngine(300, 300, 5000)
+if st.session_state.engine_v8 is None or st.session_state.engine_v8.num_agents != agent_count:
+    st.session_state.engine_v8 = BioEngine(300, 300, agent_count)
 
-engine = st.session_state.engine_v7
+engine = st.session_state.engine_v8
 nodes_arr = np.array(st.session_state.nodes)
 
-# --- 6. MAIN EXECUTION LOOP ---
+# --- 6. MAIN LOOP ---
 if is_running:
     for _ in range(10): 
-        engine.step(st.session_state.nodes)
+        engine.step(st.session_state.nodes, speed_val, decay_rate)
 
-# --- 7. METRICS & ANALYSIS ---
-# Calculate MST (Ground Truth)
+# --- 7. UI & METRICS ---
+st.title("NEUROMORPHIC TOPOLOGY SOLVER v8")
+
+# METRICS
 if len(nodes_arr) > 1:
     dist_mat = distance_matrix(nodes_arr, nodes_arr)
     mst_cost = minimum_spanning_tree(dist_mat).toarray().sum()
 else:
     mst_cost = 0
 
-# Calculate Bio Cost (Approximation)
-# We count pixels with high traffic as "cable length"
 bio_pixels = np.sum(engine.trail_map > 1.0)
-bio_cost_est = bio_pixels / 8.0 # Scaling factor
+bio_cost_est = bio_pixels / 8.0 
 
-st.title("NEUROMORPHIC TOPOLOGY SOLVER v7")
-
-# METRICS ROW
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("NODES ONLINE", f"{len(nodes_arr)}")
 c2.metric("EPOCH", f"{engine.steps}")
-c3.metric("OPTIMAL COST (MST)", f"{int(mst_cost)}")
-delta = int(mst_cost - bio_cost_est)
-c4.metric("BIO-ROUTER COST", f"{int(bio_cost_est)}", delta=f"{delta} efficiency")
+c3.metric("MST COST", f"{int(mst_cost)}")
+c4.metric("BIO-COST", f"{int(bio_cost_est)}", delta=f"{int(mst_cost - bio_cost_est)}")
 
 st.markdown("---")
 
-# --- 8. DUAL GRAPHICS (SIDE BY SIDE) ---
+# --- 8. DUAL GRAPHICS (RESIZED & SIDE BY SIDE) ---
 col_left, col_right = st.columns(2)
 
-# LEFT: THE BIOLOGICAL PROCESS
+# LEFT: BIO-PROCESS
 with col_left:
-    st.markdown("#### 🧬 BIO-PROCESS (Search Phase)")
-    fig1, ax1 = plt.subplots(figsize=(5, 5), facecolor='black')
+    st.markdown("#### 🧬 BIO-PROCESS")
+    # Reduced figsize from 5x5 to 3.5x3.5
+    fig1, ax1 = plt.subplots(figsize=(3.5, 3.5), facecolor='black')
     
-    # Render Slime
     disp_map = np.log1p(engine.trail_map)
-    # Magma colormap for that "organic heat" look
-    ax1.imshow(disp_map, cmap='magma', origin='upper', vmin=0, vmax=np.percentile(disp_map, 99.5))
+    ax1.imshow(disp_map, cmap='magma', origin='upper', vmin=0, vmax=np.percentile(disp_map, 99.5) if np.any(disp_map) else 1)
     
-    # Render Nodes
     if len(nodes_arr) > 0:
-        ax1.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=50, edgecolors='cyan', zorder=10)
+        ax1.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=30, edgecolors='cyan', zorder=10)
     
     ax1.axis('off')
     fig1.tight_layout(pad=0)
     st.pyplot(fig1, use_container_width=True)
 
-# RIGHT: THE ENGINEERED SOLUTION
+# RIGHT: DIGITAL TWIN
 with col_right:
-    st.markdown("#### 💠 DIGITAL TWIN (Result Phase)")
-    fig2, ax2 = plt.subplots(figsize=(5, 5), facecolor='black')
+    st.markdown("#### 💠 DIGITAL TWIN")
+    # Reduced figsize from 5x5 to 3.5x3.5
+    fig2, ax2 = plt.subplots(figsize=(3.5, 3.5), facecolor='black')
     ax2.set_facecolor('black')
     ax2.set_xlim(0, 300)
     ax2.set_ylim(300, 0)
     
-    # 1. Draw "Cable Routes" (Thresholded Slime)
-    y_trail, x_trail = np.where(engine.trail_map > 2.5) # Higher threshold for clean lines
+    y_trail, x_trail = np.where(engine.trail_map > 2.5)
     if len(x_trail) > 0:
-        ax2.scatter(x_trail, y_trail, c='#00E5FF', s=1, alpha=0.4, label='Optimized Route')
+        ax2.scatter(x_trail, y_trail, c='#00E5FF', s=0.5, alpha=0.5)
     
-    # 2. Draw MST Reference (Ghost Lines)
-    if len(nodes_arr) > 1 and st.toggle("Show MST Reference Lines", value=False):
-        mst_matrix = minimum_spanning_tree(distance_matrix(nodes_arr, nodes_arr)).toarray()
-        for i in range(len(nodes_arr)):
-            for j in range(len(nodes_arr)):
-                if mst_matrix[i, j] > 0:
-                    p1, p2 = nodes_arr[i], nodes_arr[j]
-                    ax2.plot([p1[0], p2[0]], [p1[1], p2[1]], c='white', alpha=0.2, linestyle='--', linewidth=0.8)
-
-    # 3. Render Nodes (Square Terminals)
     if len(nodes_arr) > 0:
-        ax2.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00E5FF', s=80, marker='s', edgecolors='white', zorder=10)
-        for i, (nx, ny) in enumerate(nodes_arr):
-            ax2.text(nx+8, ny+3, f"SRV-{i:02d}", color='#888', fontsize=7, fontfamily='monospace')
+        ax2.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00E5FF', s=60, marker='s', edgecolors='white', zorder=10)
 
     ax2.axis('off')
     fig2.tight_layout(pad=0)
     st.pyplot(fig2, use_container_width=True)
 
-# --- 9. TELEMETRY & DATA ---
+# --- 9. TELEMETRY (FIXED) ---
 st.markdown("#### 📉 CONVERGENCE TELEMETRY")
-st.session_state.history.append({"MST": mst_cost, "BIO": bio_cost_est})
+
+# Append new data
+st.session_state.history.append({"MST": float(mst_cost), "BIO": float(bio_cost_est)})
 if len(st.session_state.history) > 100: st.session_state.history.pop(0)
 
-chart_data = pd.DataFrame(st.session_state.history)
-st.line_chart(chart_data, color=["#FFFFFF", "#00E5FF"], height=150)
+# Create DataFrame explicitly to prevent color mismatch errors
+chart_df = pd.DataFrame(st.session_state.history)
+
+if not chart_df.empty:
+    # Ensure correct column types
+    chart_df = chart_df.astype(float)
+    # Streamlit line_chart auto-assigns colors if you don't map them manually, 
+    # but providing a list works if columns match. 
+    # To be safe, we just let it default or map specifically if needed.
+    # We will use the color list since we know we have exactly 2 columns.
+    try:
+        st.line_chart(chart_df, color=["#FFFFFF", "#00E5FF"], height=200)
+    except:
+        # Fallback if dimensions mismatch momentarily
+        st.line_chart(chart_df, height=200)
 
 # EXPORT
 csv_buffer = pd.DataFrame(st.session_state.nodes, columns=['X', 'Y']).to_csv(index=False).encode('utf-8')
-st.download_button(
-    label="💾 EXPORT TOPOLOGY CSV",
-    data=csv_buffer,
-    file_name="topology.csv",
-    mime="text/csv",
-    use_container_width=True
-)
+st.download_button("💾 EXPORT CSV", data=csv_buffer, file_name="topology.csv", mime="text/csv")
 
 # AUTO-LOOP
 if is_running:
