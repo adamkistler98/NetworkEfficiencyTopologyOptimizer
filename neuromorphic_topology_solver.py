@@ -4,99 +4,80 @@ import matplotlib.pyplot as plt
 from scipy.spatial import distance_matrix
 from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
-import io
 import pandas as pd
 import time
-import networkx as nx
+import io
 
-# --- 1. CONFIGURATION & STEALTH CSS ---
+# --- 1. DARK MODE & UI CONFIG ---
 st.set_page_config(
-    page_title="Neuromorphic Topology Engine V5", 
+    page_title="Neuromorphic Topology V6", 
     layout="wide", 
     page_icon="🕸️",
     initial_sidebar_state="expanded"
 )
 
-# FORCE DARK MODE & REMOVE WHITE ELEMENTS
+# HARDCODED STEALTH CSS (Fixes white backgrounds)
 st.markdown("""
 <style>
-    /* MAIN BACKGROUND */
-    .stApp { background-color: #050505; color: #a0a0a0; }
+    /* MAIN CONTAINER - FORCE BLACK */
+    .stApp { background-color: #000000; color: #00E5FF; }
     
-    /* INPUTS & DROPDOWNS - CYAN & BLACK */
-    div[data-baseweb="select"] > div, 
-    div[data-baseweb="base-input"], 
-    input.st-ai, 
-    textarea.st-ai {
-        background-color: #0a1014 !important;
-        border: 1px solid #1e3a4a !important;
+    /* REMOVE WHITE BACKGROUNDS FROM PLOTS */
+    div[data-testid="stImage"] { background-color: transparent !important; }
+    
+    /* INPUTS & DROPDOWNS */
+    .stSelectbox div[data-baseweb="select"] > div {
+        background-color: #0a0a0a !important;
+        border: 1px solid #333 !important;
         color: #00E5FF !important;
     }
+    .stSelectbox div[data-baseweb="select"] > div:hover { border-color: #00E5FF !important; }
     
-    /* REMOVE WHITE FROM DROPDOWN OPTIONS */
-    ul[data-baseweb="menu"] { background-color: #0a1014 !important; border: 1px solid #00E5FF; }
-    li[data-baseweb="option"] { color: #00E5FF !important; }
-
-    /* STEALTH BUTTONS */
-    .stButton>button, .stDownloadButton>button {
+    /* BUTTONS */
+    .stButton>button {
         color: #00E5FF !important;
-        border: 1px solid #1e3a4a !important;
-        background-color: #080c10 !important;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
+        border: 1px solid #333 !important;
+        background-color: #050505 !important;
     }
-    .stButton>button:hover, .stDownloadButton>button:hover {
+    .stButton>button:hover {
         border-color: #00E5FF !important;
-        background-color: rgba(0, 229, 255, 0.15) !important;
-        color: #FFFFFF !important;
+        box-shadow: 0 0 10px rgba(0,229,255,0.2);
     }
 
-    /* METRIC BOXES */
-    div[data-testid="stMetric"] {
-        background-color: #080808;
-        border: 1px solid #222;
-        padding: 10px;
-        border-left: 4px solid #00E5FF;
-    }
-    label[data-testid="stMetricLabel"] { color: #555; font-size: 11px; }
-    div[data-testid="stMetricValue"] { font-size: 22px; color: #00E5FF; }
-
-    /* TEXT HEADERS */
-    h1, h2, h3 { color: #00E5FF !important; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px;}
+    /* TEXT & METRICS */
+    h1, h2, h3, h4, p, label { color: #00E5FF !important; font-family: 'Courier New', monospace; }
+    div[data-testid="stMetricValue"] { color: #FFFFFF !important; font-size: 24px; }
+    div[data-testid="stMetricLabel"] { color: #888888 !important; }
     
-    /* PLOT BORDERS */
-    .plot-container { border: 1px solid #333; }
+    /* HIDE STREAMLIT BRANDING */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. PHYSICS ENGINE ---
+# --- 2. PHYSICS ENGINE (The Slime) ---
 
-def calculate_mst_cost(nodes):
-    if len(nodes) < 2: return 0.0
-    dist_mat = distance_matrix(nodes, nodes)
-    mst = minimum_spanning_tree(dist_mat)
-    return mst.toarray().sum()
-
-class PhysarumEngine:
+class BioEngine:
     def __init__(self, width, height, num_agents):
         self.width = width
         self.height = height
         self.num_agents = num_agents
-        
-        # Initialize in a "Big Bang" center cluster for organic expansion
         self.agents = np.zeros((num_agents, 3))
+        # Start in random cluster
         self.agents[:, 0] = np.random.uniform(width*0.4, width*0.6, num_agents)
         self.agents[:, 1] = np.random.uniform(height*0.4, height*0.6, num_agents)
         self.agents[:, 2] = np.random.uniform(0, 2*np.pi, num_agents)
-        
         self.trail_map = np.zeros((height, width))
         self.steps = 0
 
-    def step(self, sensor_angle, sensor_dist, turn_speed, speed, decay, nodes):
+    def step(self, nodes, speed=2.0, decay=0.95):
         self.steps += 1
-        
-        # SENSING
+        # 1. SENSING
+        sensor_angle = 0.7
+        sensor_dist = 9.0
         angles = self.agents[:, 2]
+        
+        # Helper for toroidal wrapping
         def get_pos(a):
             x = (self.agents[:, 0] + np.cos(a) * sensor_dist) % self.width
             y = (self.agents[:, 1] + np.sin(a) * sensor_dist) % self.height
@@ -110,185 +91,173 @@ class PhysarumEngine:
         c_val = self.trail_map[cy, cx]
         r_val = self.trail_map[ry, rx]
         
-        # DECISION
-        jitter = np.random.uniform(-0.1, 0.1, self.num_agents)
+        # 2. DECISION (Steer towards highest pheromone)
+        jitter = np.random.uniform(-0.2, 0.2, self.num_agents)
         move_fwd = (c_val > l_val) & (c_val > r_val)
         move_left = (l_val > c_val) & (l_val > r_val)
         move_right = (r_val > c_val) & (r_val > l_val)
         
-        new_angles = angles.copy()
-        new_angles[move_left] -= turn_speed
-        new_angles[move_right] += turn_speed
-        mask_random = ~(move_fwd | move_left | move_right)
-        new_angles[mask_random] += jitter[mask_random] * 5 
-        
-        self.agents[:, 2] = new_angles
+        self.agents[move_left, 2] -= 0.5
+        self.agents[move_right, 2] += 0.5
+        self.agents[~(move_fwd | move_left | move_right), 2] += jitter[~(move_fwd | move_left | move_right)]
 
-        # MOVEMENT
+        # 3. MOVE
         self.agents[:, 0] += np.cos(self.agents[:, 2]) * speed
         self.agents[:, 1] += np.sin(self.agents[:, 2]) * speed
         self.agents[:, 0] %= self.width
         self.agents[:, 1] %= self.height
         
-        # DEPOSIT
+        # 4. DEPOSIT
         ix, iy = self.agents[:, 0].astype(int), self.agents[:, 1].astype(int)
         np.add.at(self.trail_map, (iy, ix), 1.0) 
         
-        # ATTRACTION (FOOD)
+        # 5. NODE ATTRACTION (Food)
         for sx, sy in nodes:
             y_min, y_max = max(0, int(sy)-3), min(self.height, int(sy)+3)
             x_min, x_max = max(0, int(sx)-3), min(self.width, int(sx)+3)
-            self.trail_map[y_min:y_max, x_min:x_max] += 2.0
+            self.trail_map[y_min:y_max, x_min:x_max] += 5.0 # Strong gravity
 
-        # DECAY
+        # 6. DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
 # --- 3. SESSION STATE ---
-
 if 'sim' not in st.session_state:
     st.session_state.sim = None
 if 'nodes' not in st.session_state:
-    st.session_state.nodes = np.random.randint(20, 280, size=(6, 2)).tolist()
+    st.session_state.nodes = [[100, 100], [200, 100], [200, 200], [100, 200], [150, 150]] # Default grid
 if 'history' not in st.session_state:
     st.session_state.history = []
 
 # --- 4. SIDEBAR ---
+st.sidebar.title("🎛️ SYSTEM KERNEL")
+is_running = st.sidebar.toggle("🟢 SYSTEM ONLINE", value=True)
 
-st.sidebar.markdown("### 💠 SYSTEM CONTROLS")
-is_running = st.sidebar.toggle("RUN SIMULATION", value=True)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("#### 🗺️ Topology Scenario")
-preset = st.sidebar.selectbox("Network Pattern:", ["Random Scatter", "Pentagon Ring", "Grid Lattice", "Star Hub"])
-    
-if st.sidebar.button("⚠️ REBOOT SYSTEM"):
+st.sidebar.markdown("### 🗺️ TOPOLOGY PRESETS")
+preset = st.sidebar.selectbox("Select Layout", ["Square Loop", "Pentagon", "Random Scatter", "Hub & Spoke"])
+if st.sidebar.button("⚠️ LOAD PRESET"):
     st.session_state.sim = None
     st.session_state.history = []
-    if preset == "Random Scatter":
-        st.session_state.nodes = np.random.randint(20, 280, size=(np.random.randint(5, 9), 2)).tolist()
-    elif preset == "Pentagon Ring":
-        c, r = (150, 150), 100
+    if preset == "Square Loop":
+        st.session_state.nodes = [[100, 100], [200, 100], [200, 200], [100, 200]]
+    elif preset == "Pentagon":
+        c, r = (150, 150), 80
         angles = np.linspace(0, 2*np.pi, 6)[:-1]
         st.session_state.nodes = [[c[0] + r*np.cos(a), c[1] + r*np.sin(a)] for a in angles]
-    elif preset == "Grid Lattice":
-        st.session_state.nodes = [[x, y] for x in range(80, 280, 70) for y in range(80, 280, 70)]
-    elif preset == "Star Hub":
+    elif preset == "Random Scatter":
+        st.session_state.nodes = np.random.randint(40, 260, size=(6, 2)).tolist()
+    elif preset == "Hub & Spoke":
         nodes = [[150, 150]]
-        nodes.extend([[150 + 120*np.cos(a), 150 + 120*np.sin(a)] for a in np.linspace(0, 2*np.pi, 7)[:-1]])
+        nodes.extend([[150 + 100*np.cos(a), 150 + 100*np.sin(a)] for a in np.linspace(0, 2*np.pi, 7)[:-1]])
         st.session_state.nodes = nodes
     st.rerun()
 
-with st.sidebar.expander("⚙️ Physics Parameters"):
-    agent_count = st.slider("Particle Flux", 1000, 10000, 5000)
-    decay_rate = st.slider("Entropy Decay", 0.90, 0.99, 0.95)
-    speed = st.slider("Propagation C", 1.0, 5.0, 2.0)
+st.sidebar.markdown("### ⚡ RESILIENCE TEST")
+if st.sidebar.button("💥 DESTROY RANDOM NODE"):
+    if len(st.session_state.nodes) > 2:
+        st.session_state.nodes.pop(np.random.randint(0, len(st.session_state.nodes)))
+        # Do not reset sim, let it adapt!
 
 # --- 5. INITIALIZE ---
-
-if st.session_state.sim is None or st.session_state.sim.num_agents != agent_count:
-    st.session_state.sim = PhysarumEngine(300, 300, agent_count)
+if st.session_state.sim is None:
+    st.session_state.sim = BioEngine(300, 300, 4000)
 
 engine = st.session_state.sim
 nodes_arr = np.array(st.session_state.nodes)
 
-# --- 6. SIMULATION LOOP ---
-
+# --- 6. MAIN LOOP ---
 if is_running:
-    for _ in range(12):
-        engine.step(0.7, 9, 0.5, speed, decay_rate, st.session_state.nodes)
+    for _ in range(15): # Fast forward
+        engine.step(st.session_state.nodes)
 
-# METRICS
-mst_cost = calculate_mst_cost(nodes_arr)
-bio_mask = engine.trail_map > 1.0
-bio_cost = np.sum(bio_mask) / 10.0
-st.session_state.history.append({"MST": mst_cost, "BIO": bio_cost, "STEP": engine.steps})
-if len(st.session_state.history) > 150: st.session_state.history.pop(0)
+# --- 7. UI LAYOUT ---
+st.title("NEUROMORPHIC TOPOLOGY SOLVER v6")
 
-# --- 7. DASHBOARD UI ---
-
-st.title("NEUROMORPHIC TOPOLOGY SOLVER")
-
-# Top Metrics
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("NODES", f"{len(st.session_state.nodes)}")
-m2.metric("EPOCH", f"{engine.steps}")
-m3.metric("MST BASELINE", f"{int(mst_cost)}")
-m4.metric("BIO-COST", f"{int(bio_cost)}", delta=f"{int(mst_cost - bio_cost)}")
+# METRICS ROW
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("NODES ONLINE", f"{len(nodes_arr)}")
+c2.metric("EPOCH", f"{engine.steps}")
+# Calculate MST
+if len(nodes_arr) > 1:
+    dist_mat = distance_matrix(nodes_arr, nodes_arr)
+    mst_cost = minimum_spanning_tree(dist_mat).toarray().sum()
+    c3.metric("MST COST (OPTIMAL)", f"{int(mst_cost)}")
+else:
+    c3.metric("MST COST", "0")
+    
+# Bio Cost (Sum of trail density)
+bio_cost = np.sum(engine.trail_map > 1.0) / 10
+c4.metric("BIO-SOLVER COST", f"{int(bio_cost)}")
 
 st.markdown("---")
 
-# SIDE-BY-SIDE LAYOUT (1:1 Ratio)
-col_left, col_right = st.columns([1, 1])
+# --- 8. DUAL GRAPHICS (SIDE BY SIDE) ---
+col_left, col_right = st.columns(2)
 
-# --- LEFT: THE VISUAL SOLUTION (MAP) ---
+# LEFT: THE ORGANIC PROCESS
 with col_left:
-    st.markdown("###### 👁️ GEODESIC FLOW MAP")
+    st.markdown("#### 🧬 BIO-PROCESS (Solving...)")
+    fig1, ax1 = plt.subplots(figsize=(5, 5), facecolor='black')
     
-    fig_map, ax_map = plt.subplots(figsize=(5, 4), facecolor='#050505')
-    
-    # 1. Base Slime Map
+    # Render Slime
     disp_map = np.log1p(engine.trail_map)
-    ax_map.imshow(disp_map, cmap='winter', origin='upper', aspect='equal')
+    ax1.imshow(disp_map, cmap='magma', origin='upper', vmin=0, vmax=np.percentile(disp_map, 99))
     
-    # 2. Nodes
+    # Render Nodes
     if len(nodes_arr) > 0:
-        ax_map.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00E5FF', s=80, edgecolors='white', linewidth=1.0, zorder=10)
+        ax1.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=50, edgecolors='cyan')
     
-    # 3. SOLUTION OVERLAY (Steiner Approximation)
-    # Highlight high-traffic paths as "Cables"
-    if st.toggle("Post-Process: Extract Graph Solution", value=False):
-        # Threshold the map to find strong connections
-        rows, cols = np.where(engine.trail_map > 2.0)
-        ax_map.scatter(cols, rows, s=0.5, c='#FFFF00', alpha=0.1) # Yellow dust for cables
-        ax_map.set_title("Steiner Tree Approximation", color='#FFFF00', fontsize=8)
+    ax1.axis('off')
+    fig1.tight_layout(pad=0)
+    st.pyplot(fig1, use_container_width=True)
 
-    ax_map.axis('off')
-    fig_map.tight_layout(pad=0)
-    st.pyplot(fig_map, use_container_width=True)
-
-
-# --- RIGHT: THE TELEMETRY PROOF (GRAPH) ---
+# RIGHT: THE EXTRACTED SOLUTION
 with col_right:
-    st.markdown("###### 📉 CONVERGENCE TELEMETRY")
+    st.markdown("#### 💠 DIGITAL TWIN (Solution)")
+    fig2, ax2 = plt.subplots(figsize=(5, 5), facecolor='black')
     
-    # CUSTOM MATPLOTLIB GRAPH (To remove white backgrounds)
-    hist_df = pd.DataFrame(st.session_state.history)
+    # 1. Dark Background
+    ax2.set_facecolor('black')
+    ax2.set_xlim(0, 300)
+    ax2.set_ylim(300, 0) # Invert Y to match image
     
-    fig_chart, ax_chart = plt.subplots(figsize=(5, 3), facecolor='#050505') # Dark BG
-    ax_chart.set_facecolor('#050505') # Dark Plot Area
+    # 2. Extract Lines (Thresholding)
+    # This simulates "vectorizing" the slime trail
+    y_trail, x_trail = np.where(engine.trail_map > 2.0) # High traffic areas
+    if len(x_trail) > 0:
+        # Plot as a scatter of small points to simulate connections
+        # (Faster than actual contour fitting for real-time)
+        ax2.scatter(x_trail, y_trail, c='#00E5FF', s=1, alpha=0.3, label='Active Route')
     
-    if not hist_df.empty:
-        # Plot MST (Baseline)
-        ax_chart.plot(hist_df['STEP'], hist_df['MST'], color='#444444', linestyle='--', linewidth=1, label="MST (Optimal)")
-        # Plot Bio (Actual)
-        ax_chart.plot(hist_df['STEP'], hist_df['BIO'], color='#00E5FF', linewidth=1.5, label="Bio-Solver")
-        
-        # Styling
-        ax_chart.grid(color='#222222', linestyle='-', linewidth=0.5)
-        ax_chart.spines['bottom'].set_color('#444444')
-        ax_chart.spines['left'].set_color('#444444')
-        ax_chart.spines['top'].set_visible(False)
-        ax_chart.spines['right'].set_visible(False)
-        ax_chart.tick_params(axis='x', colors='#666666', labelsize=8)
-        ax_chart.tick_params(axis='y', colors='#666666', labelsize=8)
-        
-        # Legend
-        leg = ax_chart.legend(loc='upper right', facecolor='#050505', edgecolor='#333333', fontsize=8)
-        for text in leg.get_texts():
-            text.set_color("#888888")
+    # 3. Draw Optimal MST Lines (Ghost lines for comparison)
+    if len(nodes_arr) > 1:
+        mst_matrix = minimum_spanning_tree(distance_matrix(nodes_arr, nodes_arr)).toarray()
+        for i in range(len(nodes_arr)):
+            for j in range(len(nodes_arr)):
+                if mst_matrix[i, j] > 0:
+                    p1, p2 = nodes_arr[i], nodes_arr[j]
+                    ax2.plot([p1[0], p2[0]], [p1[1], p2[1]], c='white', alpha=0.3, linestyle='--', linewidth=0.5)
 
-    st.pyplot(fig_chart, use_container_width=True)
-    
-    # EXPORT CONTROLS (Grouped)
-    c1, c2 = st.columns(2)
-    with c1:
-        df = pd.DataFrame(st.session_state.nodes, columns=["X", "Y"])
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("💾 DATA EXPORT", csv, "topology.csv", "text/csv", use_container_width=True)
-    with c2:
-        img_buf = io.BytesIO()
-        fig_map.savefig(img_buf, format='png', facecolor='#050505', bbox_inches='tight', pad_inches=0)
-        st.download_button("📸 SNAPSHOT", img_buf.getvalue(), "network_state.png", "image/png", use_container_width=True)
+    # 4. Render Nodes
+    if len(nodes_arr) > 0:
+        ax2.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00E5FF', s=100, marker='s', edgecolors='white')
+        for i, (nx, ny) in enumerate(nodes_arr):
+            ax2.text(nx+5, ny-5, f"N{i}", color='white', fontsize=8)
+
+    ax2.axis('off')
+    fig2.tight_layout(pad=0)
+    st.pyplot(fig2, use_container_width=True)
+
+# --- 9. TELEMETRY & EXPORT ---
+st.markdown("#### 📉 CONVERGENCE HISTORY")
+st.session_state.history.append({"MST": mst_cost if len(nodes_arr)>1 else 0, "BIO": bio_cost})
+if len(st.session_state.history) > 100: st.session_state.history.pop(0)
+
+chart_data = pd.DataFrame(st.session_state.history)
+st.line_chart(chart_data, color=["#FFFFFF", "#00E5FF"], height=150)
+
+# EXPORT
+csv_buffer = pd.DataFrame(st.session_state.nodes, columns=['X', 'Y']).to_csv().encode('utf-8')
+st.download_button("💾 DOWNLOAD NODE TOPOLOGY (CSV)", data=csv_buffer, file_name="topology.csv", mime="text/csv")
 
 # AUTO-LOOP
 if is_running:
