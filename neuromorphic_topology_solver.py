@@ -8,11 +8,11 @@ import pandas as pd
 import time
 
 # --- 1. THE NUCLEAR OPTION: GLOBAL DARK PLOTTING ---
-plt.style.use('dark_background') # <--- THIS FIXES THE WHITE GRAPHS PERMANENTLY
+plt.style.use('dark_background') 
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="Neuromorphic Architect v13", 
+    page_title="Neuromorphic Architect v14", 
     layout="wide", 
     page_icon="🕸️",
     initial_sidebar_state="expanded"
@@ -48,7 +48,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. BIO-ENGINE (PHYSICS KERNEL) ---
+# --- 4. BIO-ENGINE (UPDATED PHYSICS KERNEL) ---
 class BioEngine:
     def __init__(self, width, height, num_agents):
         self.width = width
@@ -61,7 +61,7 @@ class BioEngine:
         self.trail_map = np.zeros((height, width))
         self.steps = 0
 
-    def step(self, nodes, speed, decay, sensor_angle):
+    def step(self, nodes, speed, decay, sensor_angle, noise_level):
         self.steps += 1
         sensor_dist = 9.0
         
@@ -80,14 +80,19 @@ class BioEngine:
         c_val = self.trail_map[cy, cx]
         r_val = self.trail_map[ry, rx]
         
-        # DECISION
-        jitter = np.random.uniform(-0.1, 0.1, self.num_agents)
+        # DECISION (With Noise Injection)
+        # Higher noise = Terrain Difficulty (Agents make more random errors)
+        jitter = np.random.uniform(-noise_level, noise_level, self.num_agents)
+        
         move_fwd = (c_val > l_val) & (c_val > r_val)
         move_left = (l_val > c_val) & (l_val > r_val)
         move_right = (r_val > c_val) & (r_val > l_val)
         
-        self.agents[move_left, 2] -= 0.5
-        self.agents[move_right, 2] += 0.5
+        # Turn speed is inversely proportional to speed (High speed = wide turns)
+        turn_rate = 0.5 / speed 
+        
+        self.agents[move_left, 2] -= turn_rate
+        self.agents[move_right, 2] += turn_rate
         self.agents[~(move_fwd | move_left | move_right), 2] += jitter[~(move_fwd | move_left | move_right)]
 
         # MOVE
@@ -110,8 +115,8 @@ class BioEngine:
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
 # --- 5. STATE MANAGEMENT ---
-if 'engine_v13' not in st.session_state:
-    st.session_state.engine_v13 = None
+if 'engine_v14' not in st.session_state:
+    st.session_state.engine_v14 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -124,7 +129,7 @@ is_running = st.sidebar.toggle("🟢 SYSTEM ONLINE", value=True)
 st.sidebar.markdown("#### 1. SCENARIO CONFIG")
 preset = st.sidebar.selectbox("Region Topology", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD TOPOLOGY"):
-    st.session_state.engine_v13 = None
+    st.session_state.engine_v14 = None
     st.session_state.history = []
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
@@ -143,23 +148,33 @@ if st.sidebar.button("⚠️ LOAD TOPOLOGY"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("#### 2. BUSINESS LOGIC")
 
+# 1. CAPEX (Decay)
 capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, 0.8, help="High = Strict Budget (Minimal Cabling). Low = Unlimited Budget (Mesh).")
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
+# 2. REDUNDANCY (Sensor Angle)
 redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, 0.7, help="High = Ensure Backup Paths. Low = Single Point of Failure OK.")
 
-traffic_load = st.sidebar.slider("Projected Load (Agents)", 1000, 10000, 5000, help="Simulate future traffic demand.")
+# 3. LATENCY (Speed) - NEW
+latency_pref = st.sidebar.slider("Latency Priority (Speed)", 1.0, 5.0, 2.0, help="High = HFT/Real-time (Direct lines). Low = Batch/Storage (Winding lines).")
+
+# 4. TERRAIN (Noise) - NEW
+terrain_diff = st.sidebar.slider("Terrain Difficulty (Noise)", 0.05, 0.5, 0.1, help="Simulates urban density or physical obstacles. High values create erratic, robust paths.")
+
+# 5. LOAD (Agents)
+traffic_load = st.sidebar.slider("Projected Load (Agents)", 1000, 10000, 5000)
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v13 is None or st.session_state.engine_v13.num_agents != traffic_load:
-    st.session_state.engine_v13 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v14 is None or st.session_state.engine_v14.num_agents != traffic_load:
+    st.session_state.engine_v14 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v13
+engine = st.session_state.engine_v14
 nodes_arr = np.array(st.session_state.nodes)
 
 if is_running:
     for _ in range(12): 
-        engine.step(st.session_state.nodes, 2.0, decay, redundancy_pref)
+        # Pass new variables to step function
+        engine.step(st.session_state.nodes, latency_pref, decay, redundancy_pref, terrain_diff)
 
 # --- 8. METRICS & ANALYSIS ---
 if len(nodes_arr) > 1:
@@ -169,22 +184,25 @@ else:
 
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
-is_connected = "SECURE" if capex_efficiency < 90 else "FRAGMENTED"
 
 # --- 9. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
     st.markdown("### 🕸️ NEUROMORPHIC ARCHITECT")
-    st.caption(f"STATUS: {is_connected} | OPTIMIZATION TARGET: STEINER TREE APPROXIMATION")
+    st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: v14 DEEP-OPS")
 
+# DYNAMIC ANALYST REPORT
 report_color = "#00FF41" if capex_efficiency > 50 else "#FFA500"
+latency_status = "ULTRA-LOW" if latency_pref > 3.0 else "STANDARD"
+terrain_status = "HOSTILE" if terrain_diff > 0.3 else "STABLE"
+
 st.markdown(f"""
 <div style="border: 1px solid #333; padding: 10px; border-radius: 5px; background-color: #0A0A0A; margin-bottom: 10px;">
     <span style="color: #888; font-family: monospace; font-size: 12px;">ANALYST SUMMARY:</span><br>
     <span style="color: {report_color}; font-family: monospace; font-size: 14px;">
-    > Current topology achieves <b>{int(capex_efficiency)}% CAPEX Efficiency</b> vs. traditional mesh.<br>
-    > Redundancy scan detects <b>{int(redundancy_pref * 4)} potential failover loops</b>.<br>
-    > Recommendation: { "Deploy configuration." if capex_efficiency > 60 else "Increase redundancy budget."}
+    > <b>{latency_status} LATENCY</b> protocol active. Routes prioritized for straight-line speed.<br>
+    > <b>{terrain_status} TERRAIN</b> detected. Signal noise requires signal boosting (thicker cabling).<br>
+    > Net Result: <b>{int(capex_efficiency)}% CAPEX Efficiency</b>. { "Deployment Approved." if capex_efficiency > 60 else "Review Budget."}
     </span>
 </div>
 """, unsafe_allow_html=True)
@@ -193,16 +211,15 @@ m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
 m2.metric("MINIMUM VIABLE (MST)", f"{int(mst_cost)} km")
 m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume - mst_cost)} redundant", delta_color="inverse")
-m4.metric("LOAD FACTOR", f"{int(traffic_load/100)}%")
+m4.metric("LATENCY SCORE", f"{latency_pref}x")
 m5.metric("CAPEX SAVINGS", f"{int(capex_efficiency)}%", "vs. Mesh")
 
 # --- 10. VISUALIZATION TRIFECTA ---
 col_vis1, col_vis2, col_stats = st.columns([1, 1, 1.2])
 
-# 1. BIOLOGICAL SOLVER (The "Brain")
+# 1. BIOLOGICAL SOLVER
 with col_vis1:
     st.markdown("**1. LATENCY TERRAIN (Solver)**")
-    # Using global dark style, no need to set facecolor manually anymore
     fig1, ax1 = plt.subplots(figsize=(3.5, 3.5)) 
     disp_map = np.log1p(engine.trail_map)
     ax1.imshow(disp_map, cmap='magma', origin='upper') 
@@ -211,9 +228,9 @@ with col_vis1:
     ax1.axis('off')
     fig1.tight_layout(pad=0)
     st.pyplot(fig1, use_container_width=True)
-    st.caption("Bright zones = High-speed corridors. Dark zones = High latency friction.")
+    st.caption("Heatmap shows packet congestion. High Latency Priority forces straighter, hotter paths.")
 
-# 2. SCHEMATIC (The "Blueprint")
+# 2. SCHEMATIC
 with col_vis2:
     st.markdown("**2. NETWORK BLUEPRINT (Output)**")
     fig2, ax2 = plt.subplots(figsize=(3.5, 3.5))
@@ -235,16 +252,16 @@ with col_vis2:
     ax2.axis('off')
     fig2.tight_layout(pad=0)
     st.pyplot(fig2, use_container_width=True)
-    st.caption("Green = Core Backbone (100Gbps). Blue = Failover Paths (10Gbps).")
+    st.caption("Green = Core Backbone. Blue = Failover. Terrain difficulty adds jitter to these paths.")
 
-# 3. TELEMETRY (The "Proof")
+# 3. TELEMETRY
 with col_stats:
     st.markdown("**3. COST CONVERGENCE**")
     st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
     if len(st.session_state.history) > 80: st.session_state.history.pop(0)
     
     chart_data = pd.DataFrame(st.session_state.history)
-    fig3, ax3 = plt.subplots(figsize=(4, 2.5)) # Inherits dark theme automatically
+    fig3, ax3 = plt.subplots(figsize=(4, 2.5))
     
     if not chart_data.empty:
         ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Optimal (MST)")
@@ -258,7 +275,7 @@ with col_stats:
     ax3.legend(frameon=False, labelcolor='#888', fontsize=8, loc='upper right')
     
     st.pyplot(fig3, use_container_width=True)
-    st.caption("Convergence tracking. The system iteratively prunes expensive paths to approach the optimal baseline.")
+    st.caption("Convergence tracking. Note how High Latency/Terrain settings raise the 'Actual Cost' curve.")
 
 if is_running:
     time.sleep(0.01)
