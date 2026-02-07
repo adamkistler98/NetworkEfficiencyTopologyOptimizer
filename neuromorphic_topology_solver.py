@@ -9,7 +9,7 @@ import time
 
 # --- 1. THE STEALTH COCKPIT CONFIGURATION ---
 st.set_page_config(
-    page_title="Neuromorphic Router V10", 
+    page_title="Neuromorphic Router V11", 
     layout="wide", 
     page_icon="🕸️",
     initial_sidebar_state="expanded"
@@ -36,25 +36,17 @@ st.markdown("""
         border: 1px solid #333 !important;
         color: #00FF41 !important;
     }
-    /* THE POPOVER MENU (The part that was white) */
+    /* THE POPOVER MENU */
     ul[data-baseweb="menu"], div[data-baseweb="popover"] {
         background-color: #080808 !important;
         border: 1px solid #333 !important;
     }
     li[data-baseweb="option"] { color: #00FF41 !important; }
     
-    /* REMOVE PLOT MARGINS & BACKGROUNDS */
-    .main .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    div[data-testid="stImage"] { background: transparent !important; }
-    
     /* TEXT HIERARCHY */
     h1, h2, h3, h4 { color: #00FF41 !important; font-family: 'Courier New', monospace; letter-spacing: -1px; margin-bottom: 0px;}
-    p, label { color: #888 !important; font-family: 'Consolas', monospace; font-size: 12px; }
+    p, label { color: #888 !important; font-family: 'Consolas', monospace; font-size: 11px; }
+    .stCaption { color: #555 !important; font-size: 10px !important; }
     
     /* COMPACT METRICS */
     div[data-testid="stMetric"] {
@@ -65,6 +57,10 @@ st.markdown("""
     }
     div[data-testid="stMetricLabel"] { font-size: 10px !important; color: #666 !important; }
     div[data-testid="stMetricValue"] { font-size: 18px !important; color: #00FF41 !important; }
+    
+    /* REMOVE PLOT MARGINS */
+    .main .block-container { padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; }
+    div[data-testid="stImage"] { background: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,7 +123,7 @@ class BioEngine:
             x_min, x_max = max(0, int(sx)-3), min(self.width, int(sx)+3)
             self.trail_map[y_min:y_max, x_min:x_max] += 5.0 
 
-        # DECAY
+        # DECAY (Inverse of Memory)
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
 # --- 4. STATE ---
@@ -165,20 +161,27 @@ if st.sidebar.button("⚠️ RESET SCENARIO"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("#### 2. BUSINESS CONSTRAINTS")
 
-# MAPPING PHYSICS TO BUSINESS
-# Decay Rate -> CAPEX Efficiency (Higher decay = thinner lines = less cable = lower cost)
-capex_pref = st.sidebar.slider("CAPEX Constraint (Cable Cost)", 0.0, 1.0, 0.8, help="High constraint forces minimum cabling (Steiner Tree). Low constraint allows redundant loops.")
-decay = 0.90 + (capex_pref * 0.09) 
+# PARAMETER 1: CAPEX (Decay)
+# Impact: High CAPEX constraint = High Decay = Lines disappear faster = Cheaper, thinner network.
+capex_pref = st.sidebar.slider("CAPEX Constraint (Budget)", 0.0, 1.0, 0.8, 
+                               help="Simulates budget limits. Higher values force the algorithm to abandon weak paths quickly.")
+decay = 0.90 + (0.09 * (1.0 - capex_pref)) # Inverted: High constraint = Low decay number
 
-# Sensor Angle -> Redundancy (Wider angle = finds more alternate paths)
-redundancy_pref = st.sidebar.slider("Redundancy Requirement", 0.1, 1.5, 0.7, help="Wide search angle creates backup loops for failover.")
+# PARAMETER 2: REDUNDANCY (Sensor Angle)
+# Impact: High Redundancy = Wide Angle = Agents look sideways = More loops/cycles found.
+redundancy_pref = st.sidebar.slider("Redundancy (Failover)", 0.1, 1.5, 0.7, 
+                                    help="Simulates risk tolerance. Higher values encourage 'loop' formation for backup paths.")
 
-# Speed -> Latency (Speed of convergence)
+# PARAMETER 3: TRAFFIC LOAD (Agent Count)
+# Impact: High Load = More Agents = Thicker lines = Higher Bandwidth simulation.
+traffic_load = st.sidebar.slider("Packet Volume (Load)", 1000, 10000, 5000, 
+                                 help="Simulates network traffic. Heavier loads require thicker 'pipes' to sustain connectivity.")
+
 speed = 2.0 
 
 # --- 6. INITIALIZATION ---
-if st.session_state.engine_final is None:
-    st.session_state.engine_final = BioEngine(300, 300, 6000)
+if st.session_state.engine_final is None or st.session_state.engine_final.num_agents != traffic_load:
+    st.session_state.engine_final = BioEngine(300, 300, traffic_load)
 
 engine = st.session_state.engine_final
 nodes_arr = np.array(st.session_state.nodes)
@@ -204,7 +207,6 @@ else:
 
 # Bio Cost = Amount of "Cable" laid down
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
-efficiency = (mst_cost / (cable_volume + 1)) * 100
 capex_savings = max(0, 100 - (cable_volume / (mst_cost+1) * 100)) # Fake metric for visual logic
 
 # METRICS STRIP
@@ -231,6 +233,7 @@ with col_vis1:
     ax1.axis('off')
     fig1.tight_layout(pad=0)
     st.pyplot(fig1, use_container_width=True)
+    st.caption("Heatmap of packet flow. Brighter areas indicate high-bandwidth requirements.")
 
 # GRAPH 2: THE EXTRACTED NETWORK
 with col_vis2:
@@ -251,6 +254,7 @@ with col_vis2:
     ax2.axis('off')
     fig2.tight_layout(pad=0)
     st.pyplot(fig2, use_container_width=True)
+    st.caption("Proposed physical cabling. Green lines = Fiber optics. Dots = Data centers.")
 
 # GRAPH 3: REAL-TIME CONVERGENCE
 with col_stats:
@@ -266,7 +270,7 @@ with col_stats:
     except:
         st.line_chart(chart_df, height=180)
         
-    st.caption("Lower Green Line = Less Cabling Cost. Gap = Redundancy Cost.")
+    st.caption("Gap between Grey (Optimal) and Green (Actual) represents the cost of redundancy.")
 
 # AUTO-LOOP
 if is_running:
