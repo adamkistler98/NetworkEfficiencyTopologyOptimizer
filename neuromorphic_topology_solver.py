@@ -2,20 +2,23 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import distance_matrix
-from scipy.sparse.csgraph import minimum_spanning_tree, connected_components
+from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
 import pandas as pd
 import time
 
-# --- 1. STEALTH CONFIGURATION ---
+# --- 1. THE NUCLEAR OPTION: GLOBAL DARK PLOTTING ---
+plt.style.use('dark_background') # <--- THIS FIXES THE WHITE GRAPHS PERMANENTLY
+
+# --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="Neuromorphic Architect v12", 
+    page_title="Neuromorphic Architect v13", 
     layout="wide", 
     page_icon="🕸️",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DEEP BLACK CSS INJECTION ---
+# --- 3. DEEP BLACK CSS INJECTION ---
 st.markdown("""
 <style>
     /* GLOBAL BLACKOUT */
@@ -38,13 +41,14 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 18px !important; color: #00FF41 !important; }
     div[data-testid="stMetricLabel"] { font-size: 10px !important; color: #666 !important; }
     
-    /* PLOT RESET */
+    /* REMOVE ALL PLOT PADDING/MARGINS */
     .main .block-container { padding: 1rem; }
-    div[data-testid="stImage"] { background: transparent !important; }
+    div[data-testid="stImage"] { background: transparent !important; margin: 0px; }
+    button[title="View fullscreen"] { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. BIO-ENGINE (PHYSICS KERNEL) ---
+# --- 4. BIO-ENGINE (PHYSICS KERNEL) ---
 class BioEngine:
     def __init__(self, width, height, num_agents):
         self.width = width
@@ -105,22 +109,22 @@ class BioEngine:
         # DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 4. STATE MANAGEMENT ---
-if 'engine_v12' not in st.session_state:
-    st.session_state.engine_v12 = None
+# --- 5. STATE MANAGEMENT ---
+if 'engine_v13' not in st.session_state:
+    st.session_state.engine_v13 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- 5. SIDEBAR CONTROLS ---
+# --- 6. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
 is_running = st.sidebar.toggle("🟢 SYSTEM ONLINE", value=True)
 
 st.sidebar.markdown("#### 1. SCENARIO CONFIG")
 preset = st.sidebar.selectbox("Region Topology", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD TOPOLOGY"):
-    st.session_state.engine_v12 = None
+    st.session_state.engine_v13 = None
     st.session_state.history = []
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
@@ -146,39 +150,33 @@ redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, 0.7, help
 
 traffic_load = st.sidebar.slider("Projected Load (Agents)", 1000, 10000, 5000, help="Simulate future traffic demand.")
 
-# --- 6. INITIALIZE ---
-if st.session_state.engine_v12 is None or st.session_state.engine_v12.num_agents != traffic_load:
-    st.session_state.engine_v12 = BioEngine(300, 300, traffic_load)
+# --- 7. INITIALIZE ---
+if st.session_state.engine_v13 is None or st.session_state.engine_v13.num_agents != traffic_load:
+    st.session_state.engine_v13 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v12
+engine = st.session_state.engine_v13
 nodes_arr = np.array(st.session_state.nodes)
 
 if is_running:
     for _ in range(12): 
         engine.step(st.session_state.nodes, 2.0, decay, redundancy_pref)
 
-# --- 7. METRICS & ANALYSIS ---
-# Calculate MST (Baseline)
+# --- 8. METRICS & ANALYSIS ---
 if len(nodes_arr) > 1:
     mst_cost = minimum_spanning_tree(distance_matrix(nodes_arr, nodes_arr)).toarray().sum()
 else:
     mst_cost = 0
 
-# Calculate "Actual" Network Cost
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
+is_connected = "SECURE" if capex_efficiency < 90 else "FRAGMENTED"
 
-# Check Connectivity (NetworkX logic simulation)
-is_connected = "SECURE" if capex_efficiency < 90 else "FRAGMENTED" # Simple logic for demo
-
-# --- 8. DASHBOARD UI ---
-
+# --- 9. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
     st.markdown("### 🕸️ NEUROMORPHIC ARCHITECT")
     st.caption(f"STATUS: {is_connected} | OPTIMIZATION TARGET: STEINER TREE APPROXIMATION")
 
-# BUSINESS IMPACT REPORT
 report_color = "#00FF41" if capex_efficiency > 50 else "#FFA500"
 st.markdown(f"""
 <div style="border: 1px solid #333; padding: 10px; border-radius: 5px; background-color: #0A0A0A; margin-bottom: 10px;">
@@ -191,7 +189,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# METRICS ROW
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
 m2.metric("MINIMUM VIABLE (MST)", f"{int(mst_cost)} km")
@@ -199,15 +196,16 @@ m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume
 m4.metric("LOAD FACTOR", f"{int(traffic_load/100)}%")
 m5.metric("CAPEX SAVINGS", f"{int(capex_efficiency)}%", "vs. Mesh")
 
-# --- 9. VISUALIZATION TRIFECTA ---
+# --- 10. VISUALIZATION TRIFECTA ---
 col_vis1, col_vis2, col_stats = st.columns([1, 1, 1.2])
 
 # 1. BIOLOGICAL SOLVER (The "Brain")
 with col_vis1:
     st.markdown("**1. LATENCY TERRAIN (Solver)**")
-    fig1, ax1 = plt.subplots(figsize=(3.5, 3.5), facecolor='black')
+    # Using global dark style, no need to set facecolor manually anymore
+    fig1, ax1 = plt.subplots(figsize=(3.5, 3.5)) 
     disp_map = np.log1p(engine.trail_map)
-    ax1.imshow(disp_map, cmap='magma', origin='upper') # Magma = Heat
+    ax1.imshow(disp_map, cmap='magma', origin='upper') 
     if len(nodes_arr) > 0:
         ax1.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=25, edgecolors='cyan', zorder=10)
     ax1.axis('off')
@@ -218,24 +216,19 @@ with col_vis1:
 # 2. SCHEMATIC (The "Blueprint")
 with col_vis2:
     st.markdown("**2. NETWORK BLUEPRINT (Output)**")
-    fig2, ax2 = plt.subplots(figsize=(3.5, 3.5), facecolor='black')
-    ax2.set_facecolor('black')
+    fig2, ax2 = plt.subplots(figsize=(3.5, 3.5))
     ax2.set_xlim(0, 300); ax2.set_ylim(300, 0)
     
-    # Layer 1: Failover Routes (Thin Blue)
     y_weak, x_weak = np.where((engine.trail_map > 1.0) & (engine.trail_map < 3.0))
     if len(x_weak) > 0:
         ax2.scatter(x_weak, y_weak, c='#0055FF', s=0.2, alpha=0.3, label="Redundancy")
         
-    # Layer 2: Backbone Routes (Thick Green)
     y_core, x_core = np.where(engine.trail_map >= 3.0)
     if len(x_core) > 0:
         ax2.scatter(x_core, y_core, c='#00FF41', s=0.8, alpha=0.9, label="Backbone")
     
-    # Layer 3: Nodes
     if len(nodes_arr) > 0:
         ax2.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='#00FF41', s=50, marker='s', edgecolors='white', zorder=10)
-        # Add Labels
         for i, (nx, ny) in enumerate(nodes_arr):
             ax2.text(nx+5, ny-5, f"DC-{i+1}", color='white', fontsize=6, fontfamily='monospace')
 
@@ -250,10 +243,8 @@ with col_stats:
     st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
     if len(st.session_state.history) > 80: st.session_state.history.pop(0)
     
-    # CUSTOM MATPLOTLIB CHART (For 100% Stealth Background)
     chart_data = pd.DataFrame(st.session_state.history)
-    fig3, ax3 = plt.subplots(figsize=(4, 2.5), facecolor='black')
-    ax3.set_facecolor('black')
+    fig3, ax3 = plt.subplots(figsize=(4, 2.5)) # Inherits dark theme automatically
     
     if not chart_data.empty:
         ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Optimal (MST)")
@@ -264,8 +255,6 @@ with col_stats:
     ax3.spines['left'].set_color('#444')
     ax3.spines['top'].set_visible(False)
     ax3.spines['right'].set_visible(False)
-    ax3.tick_params(axis='x', colors='#666', labelsize=8)
-    ax3.tick_params(axis='y', colors='#666', labelsize=8)
     ax3.legend(frameon=False, labelcolor='#888', fontsize=8, loc='upper right')
     
     st.pyplot(fig3, use_container_width=True)
