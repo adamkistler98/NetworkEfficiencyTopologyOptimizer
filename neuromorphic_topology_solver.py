@@ -1,238 +1,302 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.spatial import distance_matrix
+from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
-import time
 import io
-import pandas as pd # Needed for the CSV export
+import pandas as pd
+import time
 
-# --- 1. UI CONFIGURATION ---
+# --- 1. CONFIGURATION & STYLE ---
 st.set_page_config(
-    page_title="Bio-Mimetic Router V5+", 
+    page_title="Neuromorphic Topology Engine", 
     layout="wide", 
-    page_icon="🧬",
+    page_icon="🕸️",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Readability
+# Cyberpunk/Sci-Fi UI Theme
 st.markdown("""
 <style>
-    /* Main Background */
-    .stApp { background-color: #0E1117; }
+    /* Global Reset */
+    .stApp { background-color: #050505; color: #E0E0E0; }
     
-    /* Headers - Bright Green */
-    h1, h2, h3 { color: #00FF41 !important; font-family: 'Courier New', monospace; }
+    /* HUD Panels */
+    div[data-testid="stMetric"] {
+        background-color: #111;
+        border: 1px solid #333;
+        padding: 10px;
+        border-radius: 4px;
+        border-left: 3px solid #00FF41;
+    }
     
-    /* Body Text, Captions, List Items - BRIGHT WHITE */
-    .stMarkdown p, .stCaption, li { color: #FFFFFF !important; font-size: 16px; }
+    /* Headers */
+    h1, h2, h3 { color: #00FF41 !important; font-family: 'Courier New', monospace; letter-spacing: -1px; }
     
-    /* Metrics - Green Value, White Label */
-    div[data-testid="stMetricValue"] { color: #00FF41 !important; font-size: 24px; }
-    div[data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 14px; font-weight: bold; }
-    
-    /* Info Boxes - Dark Green BG, White Text */
-    div[data-testid="stAlert"] { background-color: #112211; border: 1px solid #00FF41; }
-    div[data-testid="stAlert"] p { color: #FFFFFF !important; }
-    
-    /* Sidebar Background */
-    section[data-testid="stSidebar"] { background-color: #050505; border-right: 1px solid #333; }
+    /* Custom Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #0a0a0a;
+        border-right: 1px solid #222;
+    }
     
     /* Buttons */
-    .stButton>button { border: 1px solid #00FF41; color: #00FF41; background-color: transparent; }
-    .stButton>button:hover { background-color: rgba(0,255,65,0.2); color: #FFFFFF; }
+    .stButton>button {
+        color: #00FF41;
+        border: 1px solid #00FF41;
+        background: transparent;
+        font-family: 'Courier New', monospace;
+        transition: all 0.3s;
+    }
+    .stButton>button:hover {
+        background: #00FF41;
+        color: #000;
+        box-shadow: 0 0 10px #00FF41;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. THE SIMULATION ENGINE ---
-class SlimeEngine:
+# --- 2. MATH & PHYSICS KERNEL ---
+
+def calculate_mst_cost(nodes):
+    """Calculates the Euclidean cost of the Minimum Spanning Tree for comparison."""
+    if len(nodes) < 2: return 0.0
+    dist_mat = distance_matrix(nodes, nodes)
+    mst = minimum_spanning_tree(dist_mat)
+    return mst.toarray().sum()
+
+class PhysarumEngine:
     def __init__(self, width, height, num_agents):
         self.width = width
         self.height = height
         self.num_agents = num_agents
         
-        # AGENTS: [x, y, angle]
+        # Agents: [x, y, angle]
         self.agents = np.zeros((num_agents, 3))
-        self.agents[:, 0] = np.random.rand(num_agents) * width
-        self.agents[:, 1] = np.random.rand(num_agents) * height
-        self.agents[:, 2] = np.random.rand(num_agents) * 2 * np.pi
+        # Center initialization (looks cooler than random scatter)
+        self.agents[:, 0] = np.random.uniform(width*0.4, width*0.6, num_agents)
+        self.agents[:, 1] = np.random.uniform(height*0.4, height*0.6, num_agents)
+        self.agents[:, 2] = np.random.uniform(0, 2*np.pi, num_agents)
         
-        # MAPS
         self.trail_map = np.zeros((height, width))
         self.steps = 0
 
     def step(self, sensor_angle, sensor_dist, turn_speed, speed, decay, nodes):
         self.steps += 1
         
-        # --- SENSING ---
+        # 1. Sensing (Vectorized)
         angles = self.agents[:, 2]
-        wrap = lambda x, m: (x.astype(int) % m)
+        # Sensor positions
+        l_angle = angles - sensor_angle
+        r_angle = angles + sensor_angle
         
-        lx = wrap(self.agents[:, 0] + np.cos(angles - sensor_angle) * sensor_dist, self.width)
-        ly = wrap(self.agents[:, 1] + np.sin(angles - sensor_angle) * sensor_dist, self.height)
-        cx = wrap(self.agents[:, 0] + np.cos(angles) * sensor_dist, self.width)
-        cy = wrap(self.agents[:, 1] + np.sin(angles) * sensor_dist, self.height)
-        rx = wrap(self.agents[:, 0] + np.cos(angles + sensor_angle) * sensor_dist, self.width)
-        ry = wrap(self.agents[:, 1] + np.sin(angles + sensor_angle) * sensor_dist, self.height)
+        # Wrap coordinates
+        def get_pos(a):
+            x = (self.agents[:, 0] + np.cos(a) * sensor_dist) % self.width
+            y = (self.agents[:, 1] + np.sin(a) * sensor_dist) % self.height
+            return x.astype(int), y.astype(int)
+
+        lx, ly = get_pos(l_angle)
+        cx, cy = get_pos(angles)
+        rx, ry = get_pos(r_angle)
         
+        # Sample map
         l_val = self.trail_map[ly, lx]
         c_val = self.trail_map[cy, cx]
         r_val = self.trail_map[ry, rx]
         
-        # --- DECISION MAKING ---
-        mask_fwd = (c_val > l_val) & (c_val > r_val)
-        mask_left = (l_val > r_val) & (l_val > c_val)
-        mask_right = (r_val > l_val) & (r_val > c_val)
+        # 2. Steering Logic (Physarum Polycephalum behavior)
+        # Random jitter to prevent getting stuck in loops
+        jitter = np.random.uniform(-0.1, 0.1, self.num_agents)
         
-        jitter = np.random.uniform(-0.2, 0.2, self.num_agents)
-        self.agents[mask_left, 2] -= turn_speed
-        self.agents[mask_right, 2] += turn_speed
-        self.agents[~mask_fwd & ~mask_left & ~mask_right, 2] += jitter[~mask_fwd & ~mask_left & ~mask_right]
+        move_fwd = (c_val > l_val) & (c_val > r_val)
+        move_left = (l_val > c_val) & (l_val > r_val)
+        move_right = (r_val > c_val) & (r_val > l_val)
+        
+        # Apply rotation
+        new_angles = angles.copy()
+        new_angles[move_left] -= turn_speed
+        new_angles[move_right] += turn_speed
+        # If ambiguous, rotate randomly
+        mask_random = ~(move_fwd | move_left | move_right)
+        new_angles[mask_random] += jitter[mask_random] * 5 
+        
+        self.agents[:, 2] = new_angles
 
-        # --- MOVEMENT ---
+        # 3. Movement
         self.agents[:, 0] += np.cos(self.agents[:, 2]) * speed
         self.agents[:, 1] += np.sin(self.agents[:, 2]) * speed
         self.agents[:, 0] %= self.width
         self.agents[:, 1] %= self.height
         
-        # --- DEPOSIT PHEROMONES ---
+        # 4. Deposition
         ix = self.agents[:, 0].astype(int)
         iy = self.agents[:, 1].astype(int)
-        np.add.at(self.trail_map, (iy, ix), 5.0) 
+        # Fast deposit using bin count logic (add.at)
+        np.add.at(self.trail_map, (iy, ix), 1.0) 
         
-        # --- NODE GRAVITY ---
+        # 5. Node Gravity (Reinforce data centers)
+        # This simulates "food" sources keeping the mold alive
         for sx, sy in nodes:
-            y_min, y_max = max(0, sy-4), min(self.height, sy+4)
-            x_min, x_max = max(0, sx-4), min(self.width, sx+4)
-            self.trail_map[y_min:y_max, x_min:x_max] += 5.0
+             # Add a Gaussian blob of "food" at each node
+            y_min, y_max = max(0, int(sy)-3), min(self.height, int(sy)+3)
+            x_min, x_max = max(0, int(sx)-3), min(self.width, int(sx)+3)
+            self.trail_map[y_min:y_max, x_min:x_max] += 2.0
 
-        # --- DECAY ---
-        self.trail_map = gaussian_filter(self.trail_map, sigma=0.7) * decay
+        # 6. Global Decay & Diffusion
+        # Diffusion spreads the trail, decay removes unused paths
+        self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 3. STATE MANAGEMENT ---
+# --- 3. SESSION MANAGEMENT ---
+
 if 'sim' not in st.session_state:
     st.session_state.sim = None
 if 'nodes' not in st.session_state:
-    st.session_state.nodes = [[150, 50], [250, 120], [200, 250], [100, 250], [50, 120]]
+    # Default: A random scatter
+    st.session_state.nodes = np.random.randint(20, 280, size=(6, 2)).tolist()
+if 'view_mode' not in st.session_state:
+    st.session_state.view_mode = "Bio-Luminescence"
 
 # --- 4. SIDEBAR CONTROLS ---
-st.sidebar.title("🎛️ Network Controls")
 
-# PLAY/PAUSE TOGGLE
-st.sidebar.markdown("### ⏯️ Simulation State")
-is_paused = st.sidebar.toggle("⏸️ Pause Simulation", value=False)
+st.sidebar.markdown("## 🎛️ SYSTEM CONTROLS")
 
-st.sidebar.markdown("### 🧬 Bio-Parameters")
-num_agents = st.sidebar.slider("Packet Load (Agents)", 1000, 10000, 5000, 500)
-decay = st.sidebar.slider("Decay Rate (Optimization)", 0.80, 0.99, 0.92, 0.01)
+# Simulation State
+is_running = st.sidebar.toggle("🔴 ONLINE / OFFLINE", value=True)
 
-st.sidebar.markdown("### 🚀 Physics Engine")
-speed = st.sidebar.slider("Transmission Speed", 0.5, 4.0, 1.5)
-sensor_angle = st.sidebar.slider("Sensor Angle", 0.1, 1.5, 0.6)
-turn_speed = st.sidebar.slider("Turn Agility", 0.1, 1.0, 0.4)
+# Topology Presets
+st.sidebar.markdown("### 🌐 Topology Scenarios")
+preset = st.sidebar.selectbox("Load Preset:", ["Random Scatter", "Ring Network", "Grid Matrix", "Star Hub"])
 
-st.sidebar.markdown("---")
-if st.sidebar.button("⚠️ Reset Topology", type="primary"):
-    st.session_state.sim = None
-    st.session_state.nodes = np.random.randint(20, 280, size=(np.random.randint(4, 7), 2)).tolist()
+if st.sidebar.button("⚠️ LOAD SCENARIO"):
+    st.session_state.sim = None # Reset engine
+    if preset == "Random Scatter":
+        st.session_state.nodes = np.random.randint(20, 280, size=(7, 2)).tolist()
+    elif preset == "Ring Network":
+        center = (150, 150)
+        radius = 100
+        angles = np.linspace(0, 2*np.pi, 9)[:-1]
+        st.session_state.nodes = [[center[0] + radius*np.cos(a), center[1] + radius*np.sin(a)] for a in angles]
+    elif preset == "Grid Matrix":
+        st.session_state.nodes = [[x, y] for x in range(60, 260, 60) for y in range(60, 260, 60)]
+    elif preset == "Star Hub":
+        nodes = [[150, 150]] # Center
+        radius = 120
+        angles = np.linspace(0, 2*np.pi, 7)[:-1]
+        nodes.extend([[150 + radius*np.cos(a), 150 + radius*np.sin(a)] for a in angles])
+        st.session_state.nodes = nodes
     st.rerun()
 
-# --- 5. INITIALIZE ENGINE ---
-if st.session_state.sim is None or st.session_state.sim.num_agents != num_agents:
-    st.session_state.sim = SlimeEngine(300, 300, num_agents)
+# Parameters
+with st.sidebar.expander("🧬 Bio-Parameters (Advanced)", expanded=False):
+    agent_count = st.slider("Packet Load", 1000, 20000, 8000, step=1000)
+    decay_rate = st.slider("Path Decay", 0.85, 0.99, 0.94, step=0.01)
+    sensor_angle = st.slider("Sensor Angle", 0.1, 1.5, 0.8)
+    speed = st.slider("Propagation Speed", 0.5, 5.0, 2.0)
+
+# View Options
+st.session_state.view_mode = st.sidebar.radio("Display Mode", ["Bio-Luminescence", "Skeleton (Routing)", "Thermal"])
+
+# --- 5. INITIALIZATION ---
+
+if st.session_state.sim is None or st.session_state.sim.num_agents != agent_count:
+    st.session_state.sim = PhysarumEngine(300, 300, agent_count)
+
 engine = st.session_state.sim
+nodes_arr = np.array(st.session_state.nodes)
 
-# --- 6. MAIN DASHBOARD ---
-st.title("BIO-MIMETIC NETWORK OPTIMIZER")
+# --- 6. SIMULATION LOOP & RENDER ---
 
-# Metrics
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Network Nodes", f"{len(st.session_state.nodes)}")
-m2.metric("Active Packets", f"{num_agents}")
-m3.metric("Simulation Epoch", f"{engine.steps}")
-cost = np.sum(engine.trail_map > 0.1)
-m4.metric("Cabling Cost (km)", f"{int(cost)}")
+# Run physics steps if online
+if is_running:
+    steps_per_frame = 15
+    for _ in range(steps_per_frame):
+        engine.step(sensor_angle, 9, 0.4, speed, decay_rate, st.session_state.nodes)
 
-st.markdown("---")
+# METRICS CALCULATION
+mst_cost = calculate_mst_cost(nodes_arr)
+# Estimate biological cost (sum of high-traffic pixels)
+bio_mask = engine.trail_map > 1.0
+bio_cost = np.sum(bio_mask) / 10.0 # Arbitrary scaling for UI comparison
 
-col_map, col_info = st.columns([2, 1])
+# DASHBOARD HEADER
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("EPOCH", f"{engine.steps}", delta=None)
+c2.metric("NODES", f"{len(st.session_state.nodes)}")
+c3.metric("MST COST (Optimal)", f"{int(mst_cost)}")
+c4.metric("BIO COST (Actual)", f"{int(bio_cost)}", delta=f"{int(bio_cost - mst_cost)}")
 
-with col_map:
-    # ONLY RUN PHYSICS IF NOT PAUSED
-    if not is_paused:
-        for _ in range(10):
-            engine.step(sensor_angle, 9, turn_speed, speed, decay, st.session_state.nodes)
+# VISUALIZATION
+col_main, col_data = st.columns([3, 1])
+
+with col_main:
+    # Prepare Image
+    fig, ax = plt.subplots(figsize=(10, 8), facecolor='#050505')
     
-    # RENDER MAP
-    fig, ax = plt.subplots(figsize=(10, 8), facecolor='#0E1117')
+    # Render Logic
+    if st.session_state.view_mode == "Skeleton (Routing)":
+        # Threshold logic to show "hard lines"
+        disp_map = np.where(engine.trail_map > 1.0, 1.0, 0.0)
+        cmap = 'binary_r'
+        ax.set_title("Network Topology Extraction", color='white')
+    elif st.session_state.view_mode == "Thermal":
+        disp_map = engine.trail_map
+        cmap = 'inferno'
+        ax.set_title("Traffic Density Heatmap", color='white')
+    else: # Bio-Luminescence
+        # Logarithmic scale for glow effect
+        disp_map = np.log1p(engine.trail_map)
+        cmap = 'gist_ncar' # Good "tech" look
+        ax.set_title("Active Packet Propagation", color='white')
+
+    ax.imshow(disp_map, cmap=cmap, origin='upper', aspect='equal')
     
-    # Network Trails
-    disp_map = np.log1p(engine.trail_map)
-    vmax = np.percentile(disp_map, 99) if np.any(disp_map) else 1
-    ax.imshow(disp_map, cmap='plasma', vmin=0, vmax=vmax, origin='upper')
+    # Overlay Nodes
+    ax.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=150, edgecolors='#00FF41', linewidth=2, zorder=10)
     
-    # Servers
-    nx, ny = zip(*st.session_state.nodes)
-    ax.scatter(nx, ny, c='white', s=200, edgecolors='#00FFFF', linewidth=3, zorder=10)
-    ax.scatter(nx, ny, c='#00FFFF', s=800, alpha=0.3, zorder=5) # Glow
+    # Draw MST Lines (Ghost lines for comparison)
+    if st.toggle("Show Optimal Reference (MST)", value=False):
+        dm = distance_matrix(nodes_arr, nodes_arr)
+        mst = minimum_spanning_tree(dm).toarray()
+        for i in range(len(nodes_arr)):
+            for j in range(len(nodes_arr)):
+                if mst[i, j] > 0:
+                    p1 = nodes_arr[i]
+                    p2 = nodes_arr[j]
+                    ax.plot([p1[0], p2[0]], [p1[1], p2[1]], c='white', alpha=0.3, linestyle='--', linewidth=1)
 
     ax.axis('off')
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=True)
+
+# DATA PANEL
+with col_data:
+    st.markdown("### 📊 Live Telemetry")
     
-    # --- NEW: DOWNLOAD BUTTONS (Placed Directly Under Image) ---
-    btn1, btn2 = st.columns(2)
+    # Efficiency calculation
+    if mst_cost > 0:
+        eff_ratio = (mst_cost / (bio_cost + 1)) * 100
+        # Normalize for display (slime is usually "longer" than straight lines)
+        efficiency = min(100, eff_ratio * 4.0) 
+        st.progress(int(efficiency)/100, text=f"Topology Efficiency: {int(efficiency)}%")
     
-    # Button 1: Image Download
+    st.markdown("---")
+    st.markdown("**Network Nodes**")
+    df = pd.DataFrame(st.session_state.nodes, columns=["Lat", "Long"])
+    st.dataframe(df, height=150, hide_index=True)
+    
+    st.markdown("---")
+    st.markdown("**Download Reports**")
+    
+    # Generate CSV
+    csv_buf = df.to_csv(index=False).encode('utf-8')
+    st.download_button("💾 Export Node Map", data=csv_buf, file_name="topology.csv", mime="text/csv", use_container_width=True)
+    
+    # Generate Snapshot
     img_buf = io.BytesIO()
-    fig.savefig(img_buf, format='png', facecolor='#0E1117', bbox_inches='tight')
-    btn1.download_button(
-        label="📸 Snapshot Map",
-        data=img_buf.getvalue(),
-        file_name=f"network_state_{engine.steps}.png",
-        mime="image/png",
-        use_container_width=True
-    )
-    
-    # Button 2: Data Export
-    df_nodes = pd.DataFrame(st.session_state.nodes, columns=["X_Coord", "Y_Coord"])
-    df_nodes['Efficiency_Metric'] = int(cost)
-    csv = df_nodes.to_csv(index=False).encode('utf-8')
-    btn2.download_button(
-        label="💾 Export Telemetry",
-        data=csv,
-        file_name="network_data.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
+    fig.savefig(img_buf, format='png', facecolor='#050505', bbox_inches='tight')
+    st.download_button("📸 Capture Topology", data=img_buf.getvalue(), file_name="network_state.png", mime="image/png", use_container_width=True)
 
-with col_info:
-    st.subheader("📡 Live Status")
-    
-    # Live Logic Updates
-    if is_paused:
-        st.warning("⏸️ **Status: PAUSED**\n\nSimulation frozen. Adjust parameters and unpause to continue.")
-    elif engine.steps < 50:
-        st.info("🟡 **Status: EXPLORING**\n\nAgents are randomly searching the grid to discover available Data Centers.")
-    elif engine.steps < 200:
-        st.success("🟢 **Status: CONVERGING**\n\nPrimary trunk lines are forming. Redundant paths are being pruned.")
-    else:
-        st.info("🔵 **Status: OPTIMIZED**\n\nNetwork has reached steady-state efficiency (Steiner Tree approximation).")
-
-    st.markdown("### 🗺️ Legend")
-    st.markdown("""
-    * **⚪ White/Cyan Dots:** Data Centers (Servers)
-    * **🟡 bright Yellow Lines:** High-Bandwidth Trunks
-    * **🟣 Purple/Pink Haze:** Low-Traffic / Latency
-    """)
-    
-    st.markdown("### 🧠 Bio-Algorithm")
-    st.caption("""
-    This simulation replicates **Physarum polycephalum** (Slime Mold). 
-    Instead of using standard pathfinding algorithms (like Dijkstra), 
-    we treat data packets as biological organisms that 'eat' network availability.
-    """)
-
-# --- 7. AUTO-LOOP LOGIC ---
-if not is_paused:
-    # This triggers the script to re-run immediately, creating the animation loop
-    time.sleep(0.01) # Tiny sleep to prevent CPU spiking
+# AUTO-LOOP
+if is_running:
+    time.sleep(0.01)
     st.rerun()
