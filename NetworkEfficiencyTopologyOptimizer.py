@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v35: Prime Architect", 
+    page_title="NetOpt v36: Sentient", 
     layout="wide", 
-    page_icon="💠",
+    page_icon="🧠",
     initial_sidebar_state="expanded"
 )
 
@@ -158,7 +158,8 @@ class CommandAgent:
         self.best_score = 0
         
         # INTELLIGENCE SCALING
-        self.learning_rate = 0.05 * (1 + (node_complexity * 0.1))
+        self.base_rate = 0.05 * (1 + (node_complexity * 0.1))
+        self.learning_rate = self.base_rate
         
         self.cooldown = 0
         self.last_action_idx = 0
@@ -166,49 +167,42 @@ class CommandAgent:
         
         self.override_mode = None 
         self.is_frozen = False
+        self.fail_streak = 0 # Track local traps
 
     def process_command(self, cmd):
         cmd = cmd.lower()
         msg = "CMD: Unknown Command."
         
-        # --- COMMAND PARSING ---
         if "freeze" in cmd or "halt" in cmd:
             self.is_frozen = True
             msg = "CMD: SYSTEM PAUSED. Optimizers Locked."
-            
         elif "growth" in cmd or "expand" in cmd:
             self.override_mode = "GROWTH"
-            self.current_params[0] = 0.8  
-            self.current_params[1] = 0.8  
+            self.current_params[0] = 0.8; self.current_params[1] = 0.8  
             self.is_frozen = False
             msg = "CMD: PRIORITY >> BALANCED GROWTH."
-            
         elif "audit" in cmd or "status" in cmd:
-            msg = f"AUDIT: Mode={self.override_mode or 'AUTO'} | Rate={self.learning_rate:.2f} | Status={'FROZEN' if self.is_frozen else 'ACTIVE'}"
-
+            msg = f"AUDIT: Mode={self.override_mode or 'AUTO'} | LR={self.learning_rate:.3f} | Best={int(self.best_score)}%"
         elif "speed" in cmd or "fast" in cmd:
             self.override_mode = "SPEED"
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> LOW LATENCY. (Enforcing Low Redundancy)"
-            
+            msg = "CMD: PRIORITY >> LOW LATENCY."
         elif "cost" in cmd or "budget" in cmd:
             self.override_mode = "COST"
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> MINIMAL CAPEX. (Enforcing High Decay)"
-            
+            msg = "CMD: PRIORITY >> MINIMAL CAPEX."
         elif "stable" in cmd or "safe" in cmd or "emergency" in cmd:
             self.override_mode = "STABLE"
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> MAX REDUNDANCY. (Spare no expense)"
-            
+            msg = "CMD: PRIORITY >> MAX REDUNDANCY."
         elif "reset" in cmd or "auto" in cmd:
             self.override_mode = None
             self.is_frozen = False
-            msg = "CMD: MANUAL OVERRIDE CLEARED. Resuming Logic."
+            msg = "CMD: MANUAL OVERRIDE CLEARED."
             
         return msg, self.current_params
 
-    def propose_action(self, current_load):
+    def propose_action(self, current_load, current_score):
         if self.is_frozen:
             return self.current_params, True
 
@@ -216,6 +210,23 @@ class CommandAgent:
             self.cooldown -= 1
             return self.current_params, True 
         
+        # --- NEW: PRECISION MODE ---
+        # If we are doing well (>85%), reduce learning rate for fine tuning
+        if current_score > 85:
+            self.learning_rate = self.base_rate * 0.2 # Fine adjustments
+        else:
+            self.learning_rate = self.base_rate # Big swings
+            
+        # --- NEW: STUCK DETECTION ---
+        # If we failed 10 times, jump out of local minima
+        if self.fail_streak > 10:
+            idx = random.choice([0, 1])
+            # Random Jump
+            self.current_params[idx] = random.uniform(0.1, 0.9)
+            self.fail_streak = 0
+            self.cooldown = 4
+            return self.current_params, False
+
         idx = random.choice([0, 1])
         change = random.choice([-self.learning_rate, self.learning_rate])
 
@@ -223,11 +234,9 @@ class CommandAgent:
         if self.override_mode == "SPEED":
             if idx == 1 and change > 0: change *= -0.5 
             if idx == 1 and self.current_params[1] > 0.4: change = -abs(change) 
-
         elif self.override_mode == "COST":
             if idx == 0 and change < 0: change *= -0.5 
             if idx == 0 and self.current_params[0] < 0.9: change = abs(change) 
-            
         elif self.override_mode == "STABLE":
             if idx == 1 and change < 0: change *= -0.5 
             if idx == 1 and self.current_params[1] < 1.2: change = abs(change) 
@@ -235,11 +244,11 @@ class CommandAgent:
         candidate = self.current_params.copy()
         candidate[idx] += change
         
-        # LOAD REACTION
+        # Load Reaction
         if current_load > 7000 and self.override_mode is None:
              candidate[1] = max(candidate[1], 1.1) 
         
-        # CLAMPING
+        # Clamp
         candidate[0] = max(0.01, min(0.99, candidate[0])) 
         candidate[1] = max(0.1, min(1.5, candidate[1]))  
         
@@ -262,11 +271,12 @@ class CommandAgent:
             self.current_params = candidate_params
             return f"EXECUTING: {self.override_mode} PROTOCOLS."
 
-        if delta > -5: 
+        if delta > -3: # Tolerant of small drops
             if delta > 0:
                 self.best_score = efficiency_score
                 self.best_params = candidate_params
                 self.current_params = candidate_params
+                self.fail_streak = 0
                 msg = f"SUCCESS: New Baseline {int(efficiency_score)}%."
             else:
                 self.current_params = candidate_params
@@ -275,13 +285,14 @@ class CommandAgent:
             revert = candidate_params.copy()
             revert[self.last_action_idx] -= self.last_change
             self.current_params = revert
+            self.fail_streak += 1
             msg = f"FAIL: Signal loss. Reverting."
             
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v35' not in st.session_state:
-    st.session_state.engine_v35 = None
+if 'engine_v36' not in st.session_state:
+    st.session_state.engine_v36 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -295,7 +306,6 @@ if 'redundancy_key' not in st.session_state: st.session_state.redundancy_key = 0
 
 # --- 7. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
-# SWAPPED ORDER: Autonomous is now DEFAULT (Index 0)
 control_mode = st.sidebar.radio("Operation Mode", ["🤖 Autonomous Agent", "Manual Operator"], horizontal=True)
 is_agent = (control_mode == "🤖 Autonomous Agent")
 
@@ -306,7 +316,7 @@ node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_s
 reshuffle = st.sidebar.button("Randomize")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v35 = None
+    st.session_state.engine_v36 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -325,11 +335,15 @@ preset_options = [
 ]
 preset = st.sidebar.selectbox("Load Preset", preset_options)
 
+# BUDGET (RELOCATED)
+manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=250, step=10)
+
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v35 = None
+    st.session_state.engine_v36 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
     
+    # Preset Logic
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -353,36 +367,23 @@ if st.sidebar.button("⚠️ LOAD PRESET"):
     elif preset == "Starlink (LEO Mesh)":
         st.session_state.nodes = [[np.random.randint(20, 280), np.random.randint(20, 280)] for _ in range(12)]
     elif preset == "Tri-State (3 Clusters)":
-        # 3 groups of 3
         c1 = [[np.random.randint(40, 100), np.random.randint(40, 100)] for _ in range(3)]
         c2 = [[np.random.randint(200, 260), np.random.randint(40, 100)] for _ in range(3)]
         c3 = [[np.random.randint(120, 180), np.random.randint(200, 260)] for _ in range(3)]
         st.session_state.nodes = c1 + c2 + c3
     elif preset == "Pipeline (Linear)":
-        # Diagonal line
         st.session_state.nodes = [[30 + i*20, 30 + i*20] for i in range(12)]
     elif preset == "The Void (Perimeter)":
-        # Ring around the edges, empty middle
-        n = 10
-        w, h = 300, 300
+        n, w, h = 10, 300, 300
         nodes = []
         for i in range(n):
-            # Top edge
             nodes.append([random.randint(10, w-10), random.randint(10, 40)])
-            # Bottom edge
             nodes.append([random.randint(10, w-10), random.randint(h-40, h-10)])
-            # Left Edge
             nodes.append([random.randint(10, 40), random.randint(10, h-10)])
-            # Right Edge
             nodes.append([random.randint(w-40, w-10), random.randint(10, h-10)])
-        # Pick 12 random ones from perimeter
         st.session_state.nodes = random.sample(nodes, 12)
         
     st.rerun()
-
-# --- MOVED BUDGET INPUT HERE ---
-manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=250, step=10)
-# -------------------------------
 
 st.sidebar.markdown("---")
 
@@ -394,11 +395,6 @@ if is_agent:
     
     st.sidebar.markdown("#### 2. AGENT SERVO CONTROL")
     st.sidebar.info(f"Optimization Active. Target > 90%.")
-    
-    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(0)
-    
-    st.session_state.capex_key = proposed_params[0]
-    st.session_state.redundancy_key = proposed_params[1]
     
     latency_pref = 3.0
     terrain_diff = 0.1
@@ -416,11 +412,15 @@ capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, value=safe_capex
 redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, value=safe_redundancy, key="redundancy_slider")
 traffic_load = st.sidebar.slider("Load (Agents)", 1000, 8000, 5000)
 
-# 4. COMMAND CONSOLE (AT BOTTOM - BUFFERED FORM)
+# Sync sliders
+if not is_agent:
+    st.session_state.capex_key = capex_pref
+    st.session_state.redundancy_key = redundancy_pref
+
+# 4. COMMAND CONSOLE
 if is_agent:
     st.sidebar.markdown("---")
     
-    # BUFFERED FORM
     with st.sidebar.form(key='cli_form', clear_on_submit=True):
         user_cmd = st.text_input("ENTER COMMAND >_", placeholder="Type 'HELP' for list")
         submit_btn = st.form_submit_button("EXECUTE")
@@ -432,7 +432,6 @@ if is_agent:
         st.session_state.agent_log.append(msg)
         st.rerun()
 
-    # TACTICAL INDEX
     st.sidebar.markdown("""
     <div class="cmd-cheat-sheet">
     <span class="cmd-key">SPEED</span>   : Low Latency<br>
@@ -445,18 +444,13 @@ if is_agent:
     </div>
     """, unsafe_allow_html=True)
 
-# Sync sliders back to state
-if not is_agent:
-    st.session_state.capex_key = capex_pref
-    st.session_state.redundancy_key = redundancy_pref
-
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v35 is None or st.session_state.engine_v35.num_agents != traffic_load:
-    st.session_state.engine_v35 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v36 is None or st.session_state.engine_v36.num_agents != traffic_load:
+    st.session_state.engine_v36 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v35
+engine = st.session_state.engine_v36
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -472,8 +466,14 @@ else:
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
-# --- 9. AGENT LEARNING (FEEDBACK LOOP) ---
+# --- 9. AGENT ACTION PHASE (POST-CALCULATION) ---
 if is_agent:
+    # 1. Propose NEW action based on CURRENT score
+    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(traffic_load, capex_efficiency)
+    st.session_state.capex_key = proposed_params[0]
+    st.session_state.redundancy_key = proposed_params[1]
+    
+    # 2. Learn from the result of the LAST action
     log_msg = st.session_state.agent_brain.learn(capex_efficiency, [capex_pref, redundancy_pref])
     
     if "Processing" in log_msg:
@@ -485,27 +485,11 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v35: PRIME ARCHITECT")
+    st.markdown("### 🕸️ NET-OPT v36: SENTIENT")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
-# DYNAMIC ANALYST REPORT
-report_color = "#00FF41" if capex_efficiency > 50 else "#FFA500"
-latency_status = "ULTRA-LOW (HFT)" if latency_pref > 3.0 else "STANDARD"
-terrain_status = "HOSTILE" if terrain_diff > 0.3 else "STABLE"
-
-st.markdown(f"""
-<div style="border: 1px solid #333; padding: 10px; border-radius: 5px; background-color: #0A0A0A; margin-bottom: 10px;">
-    <span style="color: #888; font-family: monospace; font-size: 12px;">ANALYST SUMMARY:</span><br>
-    <span style="color: {report_color}; font-family: monospace; font-size: 14px;">
-    > <b>{latency_status} LATENCY</b> protocol active. Routes prioritized for straight-line speed.<br>
-    > <b>{terrain_status} TERRAIN</b> detected. Signal noise requires signal boosting (thicker cabling).<br>
-    > Net Result: <b>{int(capex_efficiency)}% CAPEX Efficiency</b>. { "Deployment Approved." if capex_efficiency > 60 else "Review Budget."}
-    </span>
-</div>
-""", unsafe_allow_html=True)
-
-# METRICS
+# METRICS (Now at top)
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
 m2.metric("MINIMUM VIABLE", f"{int(mst_cost)} km")
@@ -586,6 +570,21 @@ with col_stats:
         log_html += f"> {line}<br>"
     log_html += "<span style='animation: blink 1s infinite;'>_</span></div>"
     st.markdown(log_html, unsafe_allow_html=True)
+
+# --- ANALYST SUMMARY (MOVED TO BOTTOM & COMPACT) ---
+report_color = "#00FF41" if capex_efficiency > 50 else "#FFA500"
+latency_status = "ULTRA-LOW (HFT)" if latency_pref > 3.0 else "STANDARD"
+terrain_status = "HOSTILE" if terrain_diff > 0.3 else "STABLE"
+
+st.markdown(f"""
+<div style="border: 1px solid #333; padding: 5px; border-radius: 5px; background-color: #050505; margin-top: 10px; font-size: 11px;">
+    <span style="color: #666; font-family: monospace;">[ANALYST SUMMARY]</span>
+    <span style="color: {report_color}; font-family: monospace;">
+    MODE: <b>{latency_status}</b> | TERRAIN: <b>{terrain_status}</b> | 
+    EFFICIENCY: <b>{int(capex_efficiency)}%</b> | STATUS: <b>{ "OPTIMAL" if capex_efficiency > 60 else "ADJUSTING..."}</b>
+    </span>
+</div>
+""", unsafe_allow_html=True)
 
 # AUTO-LOOP
 time.sleep(0.01)
