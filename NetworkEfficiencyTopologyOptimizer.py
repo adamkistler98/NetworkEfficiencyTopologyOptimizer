@@ -13,7 +13,7 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v33: Stable Core", 
+    page_title="NetOpt v34: Clean Console", 
     layout="wide", 
     page_icon="💠",
     initial_sidebar_state="expanded"
@@ -178,8 +178,8 @@ class CommandAgent:
             
         elif "growth" in cmd or "expand" in cmd:
             self.override_mode = "GROWTH"
-            self.current_params[0] = 0.8  # Balanced Capex
-            self.current_params[1] = 0.8  # Balanced Redundancy
+            self.current_params[0] = 0.8  
+            self.current_params[1] = 0.8  
             self.is_frozen = False
             msg = "CMD: PRIORITY >> BALANCED GROWTH."
             
@@ -209,7 +209,6 @@ class CommandAgent:
         return msg, self.current_params
 
     def propose_action(self, current_load):
-        # IF FROZEN, DO NOTHING
         if self.is_frozen:
             return self.current_params, True
 
@@ -217,37 +216,28 @@ class CommandAgent:
             self.cooldown -= 1
             return self.current_params, True 
         
-        # --- ENFORCED BEHAVIOR (The Fix) ---
-        # If a command is active, biased randomness pushes sliders in that direction
-        # regardless of efficiency score initially.
-        
         idx = random.choice([0, 1])
         change = random.choice([-self.learning_rate, self.learning_rate])
 
         # Bias the change based on Mode
         if self.override_mode == "SPEED":
-            # SPEED MODE: Wants Redundancy (idx 1) LOW (Negative change favored)
-            if idx == 1 and change > 0: change *= -0.5 # Punish increasing redundancy
-            if idx == 1 and self.current_params[1] > 0.4: change = -abs(change) # Force down if high
+            if idx == 1 and change > 0: change *= -0.5 
+            if idx == 1 and self.current_params[1] > 0.4: change = -abs(change) 
 
         elif self.override_mode == "COST":
-            # COST MODE: Wants Capex (idx 0) HIGH (Decay High = Cheap)
-            # Note: Slider is "Decay", so 1.0 = High Decay = Cheap
-            if idx == 0 and change < 0: change *= -0.5 # Punish spending money
-            if idx == 0 and self.current_params[0] < 0.9: change = abs(change) # Force up if low
+            if idx == 0 and change < 0: change *= -0.5 
+            if idx == 0 and self.current_params[0] < 0.9: change = abs(change) 
             
         elif self.override_mode == "STABLE":
-            # STABLE MODE: Wants Redundancy (idx 1) HIGH
-            if idx == 1 and change < 0: change *= -0.5 # Punish removing cables
-            if idx == 1 and self.current_params[1] < 1.2: change = abs(change) # Force up if low
+            if idx == 1 and change < 0: change *= -0.5 
+            if idx == 1 and self.current_params[1] < 1.2: change = abs(change) 
 
-        # Apply Change
         candidate = self.current_params.copy()
         candidate[idx] += change
         
-        # LOAD REACTION (Autonomic Nervous System)
+        # LOAD REACTION
         if current_load > 7000 and self.override_mode is None:
-             candidate[1] = max(candidate[1], 1.1) # Stress reaction
+             candidate[1] = max(candidate[1], 1.1) 
         
         # CLAMPING
         candidate[0] = max(0.01, min(0.99, candidate[0])) 
@@ -266,16 +256,12 @@ class CommandAgent:
         msg = ""
         delta = efficiency_score - self.best_score
         
-        # If we have an override mode, we care less about "efficiency score"
-        # and more about meeting the command.
-        
         if self.override_mode:
             self.best_score = efficiency_score
             self.best_params = candidate_params
             self.current_params = candidate_params
             return f"EXECUTING: {self.override_mode} PROTOCOLS."
 
-        # STANDARD LEARNING
         if delta > -5: 
             if delta > 0:
                 self.best_score = efficiency_score
@@ -294,8 +280,8 @@ class CommandAgent:
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v33' not in st.session_state:
-    st.session_state.engine_v33 = None
+if 'engine_v34' not in st.session_state:
+    st.session_state.engine_v34 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -315,12 +301,11 @@ is_agent = (control_mode == "🤖 Autonomous Agent")
 # 1. SCENARIO CUSTOMIZATION
 st.sidebar.markdown("#### 1. NETWORK SCALE")
 node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_state.nodes))
-manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=250, step=10)
 
 reshuffle = st.sidebar.button("Randomize")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v33 = None
+    st.session_state.engine_v34 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -339,7 +324,7 @@ preset_options = [
 preset = st.sidebar.selectbox("Load Preset", preset_options)
 
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v33 = None
+    st.session_state.engine_v34 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
     
@@ -379,13 +364,10 @@ if is_agent:
     st.sidebar.markdown("#### 2. AGENT SERVO CONTROL")
     st.sidebar.info(f"Optimization Active. Target > 90%.")
     
-    # PROPOSE ACTION
-    # We pass '0' load as placeholder, real load passed later
-    # But we can grab slider value here for the check
+    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(0)
     
-    # UPDATE SESSION STATE
-    # Note: We do this AFTER rendering sliders to prevent 'Value > Max' error cycle? 
-    # No, we must do it before rendering sliders so they show current state.
+    st.session_state.capex_key = proposed_params[0]
+    st.session_state.redundancy_key = proposed_params[1]
     
     latency_pref = 3.0
     terrain_diff = 0.1
@@ -403,23 +385,11 @@ capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, value=safe_capex
 redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, value=safe_redundancy, key="redundancy_slider")
 traffic_load = st.sidebar.slider("Load (Agents)", 1000, 8000, 5000)
 
-# Sync sliders back to state if manual
-if not is_agent:
-    st.session_state.capex_key = capex_pref
-    st.session_state.redundancy_key = redundancy_pref
-
-# AGENT THINKING (If Active)
-if is_agent:
-    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(traffic_load)
-    st.session_state.capex_key = proposed_params[0]
-    st.session_state.redundancy_key = proposed_params[1]
-
 # 4. COMMAND CONSOLE (AT BOTTOM - BUFFERED FORM)
 if is_agent:
     st.sidebar.markdown("---")
-    st.sidebar.markdown("#### 💻 COMMAND LINE")
     
-    # FORM WRAPPER TO PREVENT FLASHING/RELOADING ON TYPING
+    # BUFFERED FORM (Prevents flashing)
     with st.sidebar.form(key='cli_form', clear_on_submit=True):
         user_cmd = st.text_input("ENTER COMMAND >_", placeholder="Type 'HELP' for list")
         submit_btn = st.form_submit_button("EXECUTE")
@@ -444,13 +414,22 @@ if is_agent:
     </div>
     """, unsafe_allow_html=True)
 
+# 5. BUDGET (MOVED TO BOTTOM)
+manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=250, step=10)
+
+
+# Sync sliders back to state
+if not is_agent:
+    st.session_state.capex_key = capex_pref
+    st.session_state.redundancy_key = redundancy_pref
+
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v33 is None or st.session_state.engine_v33.num_agents != traffic_load:
-    st.session_state.engine_v33 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v34 is None or st.session_state.engine_v34.num_agents != traffic_load:
+    st.session_state.engine_v34 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v33
+engine = st.session_state.engine_v34
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -479,7 +458,7 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v33: STABLE CORE")
+    st.markdown("### 🕸️ NET-OPT v34: CLEAN CONSOLE")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
