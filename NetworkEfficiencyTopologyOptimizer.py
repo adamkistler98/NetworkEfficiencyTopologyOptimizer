@@ -12,7 +12,7 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v19: Agentic", 
+    page_title="NetOpt v20: Stealth", 
     layout="wide", 
     page_icon="📉",
     initial_sidebar_state="expanded"
@@ -32,6 +32,22 @@ st.markdown("""
     ul[data-baseweb="menu"], div[data-baseweb="popover"] { background-color: #080808 !important; border: 1px solid #333 !important; }
     li[data-baseweb="option"] { color: #00FF41 !important; }
     
+    /* STEALTH BUTTONS (Force Dark Theme) */
+    div.stButton > button {
+        background-color: #0A0A0A !important;
+        color: #00FF41 !important;
+        border: 1px solid #333 !important;
+    }
+    div.stButton > button:hover {
+        background-color: #1A1A1A !important;
+        border: 1px solid #00FF41 !important;
+        color: #00FF41 !important;
+    }
+    div.stButton > button:active {
+        background-color: #00FF41 !important;
+        color: #000000 !important;
+    }
+    
     /* TEXT & METRICS */
     h1, h2, h3, h4 { color: #00FF41 !important; font-family: 'Courier New', monospace; letter-spacing: -1px; margin: 0px; }
     p, label, .stCaption { color: #888 !important; font-family: 'Consolas', monospace; }
@@ -40,7 +56,7 @@ st.markdown("""
     div[data-testid="stMetric"] { background-color: #0A0A0A; border: 1px solid #222; padding: 5px !important; border-left: 3px solid #00FF41; }
     div[data-testid="stMetricValue"] { font-size: 18px !important; color: #00FF41 !important; }
     div[data-testid="stMetricLabel"] { font-size: 10px !important; color: #666 !important; }
-
+    
     /* AGENT TERMINAL STYLE */
     .agent-terminal {
         font-family: 'Courier New', monospace;
@@ -126,8 +142,8 @@ class BioEngine:
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
 # --- 5. STATE MANAGEMENT ---
-if 'engine_v19' not in st.session_state:
-    st.session_state.engine_v19 = None
+if 'engine_v20' not in st.session_state:
+    st.session_state.engine_v20 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -141,26 +157,30 @@ if 'agent_active' not in st.session_state:
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
 control_mode = st.sidebar.radio("Operation Mode", ["Manual Operator", "🤖 Autonomous Agent"], horizontal=True)
 
-# 1. SCENARIO
-st.sidebar.markdown("#### 1. SCENARIO CONFIG")
-preset = st.sidebar.selectbox("Region Topology", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
+# 1. SCENARIO CUSTOMIZATION
+st.sidebar.markdown("#### 1. NETWORK SCALE")
+# v18 Feature: Dynamic Node Count
+node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_state.nodes))
+reshuffle = st.sidebar.button("🎲 Reshuffle Locations")
 
-# RANDOMIZE BUTTON (New Feature)
-if st.sidebar.button("🎲 Randomize"):
-    st.session_state.engine_v19 = None
+if reshuffle or len(st.session_state.nodes) != node_count:
+    st.session_state.engine_v20 = None
     st.session_state.history = []
-    # Keep current number of nodes, but shuffle locations
-    count = len(st.session_state.nodes)
+    st.session_state.agent_active = False
+    st.session_state.agent_log = [f"Network resized to {node_count} nodes. Agent standing by."]
+    
+    # GENERATE RANDOM NODES
     new_nodes = []
-    for _ in range(count):
+    for _ in range(node_count):
         new_nodes.append([np.random.randint(50, 250), np.random.randint(50, 250)])
     st.session_state.nodes = new_nodes
-    st.session_state.agent_log = ["Topology Randomized. Rescanning..."]
     st.rerun()
 
+preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v19 = None
+    st.session_state.engine_v20 = None
     st.session_state.history = []
+    st.session_state.agent_active = False
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -190,16 +210,16 @@ if control_mode == "Manual Operator":
 
 else: # AGENT MODE
     st.sidebar.markdown("#### 2. AGENT OBJECTIVES")
-    st.sidebar.info(f"Agent Active. Target Efficiency > 85%.")
-    traffic_load = 5000 
+    st.sidebar.info(f"Agent managing {len(st.session_state.nodes)} nodes. Target Efficiency > 85%.")
+    traffic_load = 5000 # Agent Standard
     
     # AGENT LOGIC SIMULATION
     if not st.session_state.agent_active:
         st.session_state.agent_log.append("Agent: Taking control of parameters...")
-        st.session_state.agent_log.append(f"Agent: Scanning {len(st.session_state.nodes)} nodes...")
+        st.session_state.agent_log.append(f"Agent: Analyzing topology complexity...")
         st.session_state.agent_active = True
     
-    # Dynamic Agent Decisions (Simulated)
+    # Dynamic Agent Decisions (Simulated for visual effect)
     import time
     epoch = int(time.time()) % 3
     if epoch == 0:
@@ -224,10 +244,10 @@ else: # AGENT MODE
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v19 is None or st.session_state.engine_v19.num_agents != traffic_load:
-    st.session_state.engine_v19 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v20 is None or st.session_state.engine_v20.num_agents != traffic_load:
+    st.session_state.engine_v20 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v19
+engine = st.session_state.engine_v20
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -247,7 +267,7 @@ capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 # --- 9. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NETWORK EFFICIENCY & TOPOLOGY OPTIMIZER")
+    st.markdown("### 🕸️ NET-OPT v20: CUSTOM ARCHITECT")
     mode_label = "AUTONOMOUS" if control_mode == "🤖 Autonomous Agent" else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
@@ -267,12 +287,13 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# METRICS
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
-m2.metric("MINIMUM VIABLE (MST)", f"{int(mst_cost)} km")
-m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume - mst_cost)} redundant", delta_color="inverse")
+m2.metric("MINIMUM VIABLE", f"{int(mst_cost)} km")
+m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume - mst_cost)}", delta_color="inverse")
 m4.metric("PHYSICS C", f"{latency_pref}x")
-m5.metric("CAPEX SAVINGS", f"{int(capex_efficiency)}%", "vs. Mesh")
+m5.metric("EFFICIENCY", f"{int(capex_efficiency)}%")
 
 # --- 10. VISUALIZATION TRIFECTA ---
 col_vis1, col_vis2, col_stats = st.columns([1, 1, 1.2])
@@ -329,6 +350,7 @@ with col_stats:
         st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
         if len(st.session_state.history) > 80: st.session_state.history.pop(0)
         
+        # USE MATPLOTLIB (ORIGINAL) NOT STREAMLIT CHART
         chart_data = pd.DataFrame(st.session_state.history)
         fig3, ax3 = plt.subplots(figsize=(4, 2.5))
         
