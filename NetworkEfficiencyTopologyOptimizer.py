@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial import distance_matrix
-from scipy.sparse.csgraph import minimum_spanning_tree, connected_components
+from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
 import pandas as pd
 import time
@@ -13,7 +13,7 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v22: Stabilized", 
+    page_title="NetOpt v23: Adaptive", 
     layout="wide", 
     page_icon="🧠",
     initial_sidebar_state="expanded"
@@ -138,23 +138,22 @@ class BioEngine:
         # DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 5. THE EVOLVING AGENT BRAIN (FIXED) ---
-class EvolvingAgent:
+# --- 5. THE ADAPTIVE AGENT BRAIN ---
+class AdaptiveAgent:
     def __init__(self):
-        # Initial State [CAPEX, REDUNDANCY]
-        self.current_params = [0.8, 0.7] 
+        self.current_params = [0.8, 0.7] # Capex, Redundancy
         self.best_params = [0.8, 0.7]
         self.best_score = 0
         self.learning_rate = 0.05
-        self.cooldown = 0  # <--- NEW: Patience counter
+        self.cooldown = 0
+        self.fail_streak = 0  # <--- NEW: Track failures
         
     def propose_action(self):
-        # If in cooldown, just return current state
         if self.cooldown > 0:
             self.cooldown -= 1
-            return self.current_params, True # True = "Waiting"
+            return self.current_params, True 
         
-        # Otherwise, make a move
+        # Make a move
         action_idx = random.choice([0, 1])
         change = random.choice([-self.learning_rate, self.learning_rate])
         
@@ -162,39 +161,49 @@ class EvolvingAgent:
         candidate[action_idx] += change
         
         # Clamp
-        candidate[0] = max(0.1, min(0.99, candidate[0])) # Capex
-        candidate[1] = max(0.1, min(1.5, candidate[1]))  # Redundancy
+        candidate[0] = max(0.1, min(0.99, candidate[0])) 
+        candidate[1] = max(0.1, min(1.5, candidate[1]))  
         
-        # Reset cooldown (Wait 3 frames before judging this new move)
-        self.cooldown = 3 
-        
-        return candidate, False # False = "New Move Made"
+        self.cooldown = 2 # Shorter cooldown (2 frames) for faster adaptation
+        return candidate, False 
 
     def learn(self, efficiency_score, candidate_params):
-        # Only learn if cooldown is finished (Stability reached)
         if self.cooldown > 0:
-            return f"Stabilizing... ({self.cooldown})"
+            return f"Analyzing topology... ({self.cooldown})"
         
         msg = ""
-        # Acceptance logic
-        if efficiency_score >= self.best_score - 2: # Allow small drops (Annealing)
+        
+        # 1. CHECK FOR SPIRAL OF DEATH
+        if self.fail_streak >= 4:
+            self.best_score = efficiency_score # Reset baseline
+            self.best_params = candidate_params
+            self.current_params = candidate_params
+            self.fail_streak = 0
+            return f"WARN: Baseline drift detected. Re-calibrating to {int(efficiency_score)}%."
+
+        # 2. STANDARD EVALUATION
+        # Allow small fluctuations (noise tolerance = 3%)
+        if efficiency_score >= self.best_score - 3: 
             if efficiency_score > self.best_score:
-                msg = f"SUCCESS: Efficiency +{int(efficiency_score - self.best_score)}%. New Baseline."
+                improvement = efficiency_score - self.best_score
+                msg = f"SUCCESS: Efficiency +{int(improvement)}%. Optimization locked."
                 self.best_score = efficiency_score
                 self.best_params = candidate_params
                 self.current_params = candidate_params
+                self.fail_streak = 0 # Reset streak on success
             else:
-                msg = "HOLD: Performance stable. Exploring..."
+                msg = "HOLD: Stable configuration. Exploring..."
                 self.current_params = candidate_params
         else:
-            msg = f"FAIL: Drop detected ({int(efficiency_score)}%). Reverting."
+            msg = f"FAIL: Signal loss ({int(efficiency_score)}%). Reverting."
             self.current_params = self.best_params # Revert
+            self.fail_streak += 1 # Increment failure count
             
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v22' not in st.session_state:
-    st.session_state.engine_v22 = None
+if 'engine_v23' not in st.session_state:
+    st.session_state.engine_v23 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -202,7 +211,7 @@ if 'history' not in st.session_state:
 if 'agent_log' not in st.session_state:
     st.session_state.agent_log = ["Agent initialized. Awaiting feedback loop..."]
 if 'agent_brain' not in st.session_state:
-    st.session_state.agent_brain = EvolvingAgent()
+    st.session_state.agent_brain = AdaptiveAgent()
 
 # --- 7. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
@@ -214,10 +223,10 @@ node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_s
 reshuffle = st.sidebar.button("🎲 Reshuffle Locations")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v22 = None
+    st.session_state.engine_v23 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
-    st.session_state.agent_brain = EvolvingAgent() # Reset brain
+    st.session_state.agent_brain = AdaptiveAgent() # Reset brain
     
     new_nodes = []
     for _ in range(node_count):
@@ -227,9 +236,9 @@ if reshuffle or len(st.session_state.nodes) != node_count:
 
 preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v22 = None
+    st.session_state.engine_v23 = None
     st.session_state.history = []
-    st.session_state.agent_brain = EvolvingAgent()
+    st.session_state.agent_brain = AdaptiveAgent()
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -273,10 +282,10 @@ else: # AGENT MODE
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v22 is None or st.session_state.engine_v22.num_agents != traffic_load:
-    st.session_state.engine_v22 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v23 is None or st.session_state.engine_v23.num_agents != traffic_load:
+    st.session_state.engine_v23 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v22
+engine = st.session_state.engine_v23
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -295,12 +304,12 @@ capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
 # --- 9. AGENT LEARNING (FEEDBACK LOOP) ---
 if control_mode == "🤖 Autonomous Agent":
-    # 2. AGENT LEARNS FROM RESULT (BUT ONLY IF STABLE)
+    # 2. AGENT LEARNS FROM RESULT
     log_msg = st.session_state.agent_brain.learn(capex_efficiency, [capex_pref, redundancy_pref])
     
     # Update log only if message is meaningful
-    if "Stabilizing" in log_msg:
-        pass # Don't spam the log with dots
+    if "Analyzing" in log_msg:
+        pass 
     elif not st.session_state.agent_log or st.session_state.agent_log[-1] != f"Agent: {log_msg}":
         st.session_state.agent_log.append(f"Agent: {log_msg}")
         if len(st.session_state.agent_log) > 6: st.session_state.agent_log.pop(0)
@@ -308,7 +317,7 @@ if control_mode == "🤖 Autonomous Agent":
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v22: SELF-EVOLVING ARCHITECT")
+    st.markdown("### 🕸️ NET-OPT v23: ADAPTIVE ARCHITECT")
     mode_label = "AUTONOMOUS" if control_mode == "🤖 Autonomous Agent" else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
@@ -385,7 +394,7 @@ with col_stats:
             log_html += f"> {line}<br>"
         log_html += "<span style='animation: blink 1s infinite;'>_</span></div>"
         st.markdown(log_html, unsafe_allow_html=True)
-        st.caption("Real-time decision log. Agent waits for simulation stability before learning.")
+        st.caption("Real-time decision log. Agent auto-calibrates baseline after repeated failures.")
     else:
         st.markdown("**3. COST CONVERGENCE**")
         st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
