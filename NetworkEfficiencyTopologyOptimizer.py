@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v31: Tactical CLI", 
+    page_title="NetOpt v32: Global Command", 
     layout="wide", 
-    page_icon="💻",
+    page_icon="🌍",
     initial_sidebar_state="expanded"
 )
 
@@ -165,36 +165,61 @@ class CommandAgent:
         self.last_change = 0
         
         self.override_mode = None 
+        self.is_frozen = False
 
     def process_command(self, cmd):
         cmd = cmd.lower()
-        msg = "CMD: Unknown"
+        msg = "CMD: Unknown Command."
         
-        # KEYWORD MATCHING
-        if "speed" in cmd or "fast" in cmd:
+        # --- NEW COMMANDS ---
+        if "freeze" in cmd or "halt" in cmd:
+            self.is_frozen = True
+            msg = "CMD: SYSTEM PAUSED. Optimizers Locked."
+            
+        elif "growth" in cmd or "expand" in cmd:
+            self.override_mode = "GROWTH"
+            self.current_params[0] = 0.8  # Balanced Capex
+            self.current_params[1] = 0.8  # Balanced Redundancy
+            self.is_frozen = False
+            msg = "CMD: PRIORITY >> BALANCED GROWTH."
+            
+        elif "audit" in cmd or "status" in cmd:
+            # Does not change params, just prints info
+            msg = f"AUDIT: Mode={self.override_mode or 'AUTO'} | Nodes={self.learning_rate:.2f}x | Temp=STABLE"
+
+        # --- EXISTING COMMANDS ---
+        elif "speed" in cmd or "fast" in cmd:
             self.override_mode = "SPEED"
-            self.current_params[1] = 0.3 # Low Redundancy
+            self.current_params[1] = 0.3 
+            self.is_frozen = False
             msg = "CMD: PRIORITY >> LOW LATENCY."
             
-        elif "cost" in cmd or "budget" in cmd or "cheap" in cmd:
+        elif "cost" in cmd or "budget" in cmd:
             self.override_mode = "COST"
-            self.current_params[0] = 0.98 # Max Capex Limit (Cheap)
-            self.current_params[1] = 0.4  # Low Redundancy
+            self.current_params[0] = 0.98 
+            self.current_params[1] = 0.4  
+            self.is_frozen = False
             msg = "CMD: PRIORITY >> MINIMAL CAPEX."
             
         elif "stable" in cmd or "safe" in cmd or "emergency" in cmd:
             self.override_mode = "STABLE"
-            self.current_params[0] = 0.5  # Spend Money
-            self.current_params[1] = 1.4  # Max Redundancy
+            self.current_params[0] = 0.5 
+            self.current_params[1] = 1.4 
+            self.is_frozen = False
             msg = "CMD: PRIORITY >> MAX REDUNDANCY."
             
         elif "reset" in cmd or "auto" in cmd:
             self.override_mode = None
+            self.is_frozen = False
             msg = "CMD: MANUAL OVERRIDE CLEARED."
             
         return msg, self.current_params
 
     def propose_action(self, current_load):
+        # IF FROZEN, DO NOTHING
+        if self.is_frozen:
+            return self.current_params, True
+
         if self.cooldown > 0:
             self.cooldown -= 1
             return self.current_params, True 
@@ -220,8 +245,8 @@ class CommandAgent:
         return candidate, False 
 
     def learn(self, efficiency_score, candidate_params):
-        if self.cooldown > 0:
-            return f"Processing Topology... ({self.cooldown})"
+        if self.is_frozen: return "System Paused."
+        if self.cooldown > 0: return f"Processing Topology... ({self.cooldown})"
         
         msg = ""
         delta = efficiency_score - self.best_score
@@ -244,8 +269,8 @@ class CommandAgent:
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v31' not in st.session_state:
-    st.session_state.engine_v31 = None
+if 'engine_v32' not in st.session_state:
+    st.session_state.engine_v32 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -270,7 +295,7 @@ manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=
 reshuffle = st.sidebar.button("Randomize")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v31 = None
+    st.session_state.engine_v32 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -281,11 +306,24 @@ if reshuffle or len(st.session_state.nodes) != node_count:
     st.session_state.nodes = new_nodes
     st.rerun()
 
-preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
+# --- PRESET LOADER (EXPANDED) ---
+preset_options = [
+    "Diamond (Regional)", 
+    "Pentagon Ring", 
+    "Grid (Urban)", 
+    "Hub-Spoke (Enterprise)", 
+    "Twin Cities (Dual Cluster)", 
+    "Global Link (Trans-Oceanic)",
+    "Starlink (LEO Mesh)"
+]
+preset = st.sidebar.selectbox("Load Preset", preset_options)
+
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v31 = None
+    st.session_state.engine_v32 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
+    
+    # --- PRESET LOGIC ---
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -298,11 +336,25 @@ if st.sidebar.button("⚠️ LOAD PRESET"):
         nodes = [[150, 150]]
         nodes.extend([[150 + 110*np.cos(a), 150 + 110*np.sin(a)] for a in np.linspace(0, 2*np.pi, 7)[:-1]])
         st.session_state.nodes = nodes
+    elif preset == "Twin Cities (Dual Cluster)":
+        # Two clusters at (80,80) and (220,220)
+        c1 = [[np.random.randint(50, 110), np.random.randint(50, 110)] for _ in range(4)]
+        c2 = [[np.random.randint(190, 250), np.random.randint(190, 250)] for _ in range(4)]
+        st.session_state.nodes = c1 + c2
+    elif preset == "Global Link (Trans-Oceanic)":
+        # Left Coast vs Right Coast
+        left = [[50, y] for y in np.linspace(50, 250, 5)]
+        right = [[250, y] for y in np.linspace(50, 250, 5)]
+        st.session_state.nodes = left + right
+    elif preset == "Starlink (LEO Mesh)":
+        # Random Scatter
+        st.session_state.nodes = [[np.random.randint(20, 280), np.random.randint(20, 280)] for _ in range(12)]
+        
     st.rerun()
 
 st.sidebar.markdown("---")
 
-# 2. AGENT LOGIC INIT
+# 2. AGENT LOGIC
 if is_agent:
     if 'agent_brain' not in st.session_state:
         st.session_state.agent_brain = CommandAgent(st.session_state.capex_key, st.session_state.redundancy_key, len(st.session_state.nodes))
@@ -311,10 +363,8 @@ if is_agent:
     st.sidebar.markdown("#### 2. AGENT SERVO CONTROL")
     st.sidebar.info(f"Optimization Active. Target > 90%.")
     
-    # AGENT PROPOSES PARAMETERS
-    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(0) # 0 load placeholder
+    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(0)
     
-    # UPDATE SESSION STATE (Physical Slider Movement)
     st.session_state.capex_key = proposed_params[0]
     st.session_state.redundancy_key = proposed_params[1]
     
@@ -326,7 +376,7 @@ else:
     latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
     terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
 
-# 3. RENDER SLIDERS (HARD CLAMPED)
+# 3. RENDER SLIDERS
 safe_capex = float(np.clip(st.session_state.capex_key, 0.0, 1.0))
 safe_redundancy = float(np.clip(st.session_state.redundancy_key, 0.1, 1.5))
 
@@ -334,7 +384,7 @@ capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, value=safe_capex
 redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, value=safe_redundancy, key="redundancy_slider")
 traffic_load = st.sidebar.slider("Load (Agents)", 1000, 8000, 5000)
 
-# 4. COMMAND CONSOLE (AT BOTTOM)
+# 4. COMMAND CONSOLE
 if is_agent:
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### 💻 COMMAND LINE")
@@ -349,14 +399,16 @@ if is_agent:
             st.session_state.agent_log.append(msg)
             st.rerun()
 
-    # TACTICAL INDEX (CHEAT SHEET)
+    # TACTICAL INDEX
     st.sidebar.markdown("""
     <div class="cmd-cheat-sheet">
-    <span class="cmd-key">SPEED</span>   : Prioritize Latency<br>
-    <span class="cmd-key">COST</span>    : Prioritize Budget<br>
+    <span class="cmd-key">SPEED</span>   : Low Latency<br>
+    <span class="cmd-key">COST</span>    : Min Budget<br>
     <span class="cmd-key">STABLE</span>  : Max Redundancy<br>
-    <span class="cmd-key">RESET</span>   : Resume Auto-Pilot<br>
-    <span class="cmd-key">EMERGENCY</span>: Lockdown Protocol
+    <span class="cmd-key">GROWTH</span>  : Balanced Expansion<br>
+    <span class="cmd-key">FREEZE</span>  : Pause System<br>
+    <span class="cmd-key">AUDIT</span>   : System Report<br>
+    <span class="cmd-key">RESET</span>   : Resume Auto-Pilot
     </div>
     """, unsafe_allow_html=True)
 
@@ -368,10 +420,10 @@ if not is_agent:
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v31 is None or st.session_state.engine_v31.num_agents != traffic_load:
-    st.session_state.engine_v31 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v32 is None or st.session_state.engine_v32.num_agents != traffic_load:
+    st.session_state.engine_v32 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v31
+engine = st.session_state.engine_v32
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -400,7 +452,7 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v31: TACTICAL CLI")
+    st.markdown("### 🕸️ NET-OPT v32: GLOBAL COMMAND")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
