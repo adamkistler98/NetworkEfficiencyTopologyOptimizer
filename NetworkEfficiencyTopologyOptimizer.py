@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v27: PID Control", 
+    page_title="NetOpt v28: Annealing", 
     layout="wide", 
-    page_icon="⚡",
+    page_icon="🔥",
     initial_sidebar_state="expanded"
 )
 
@@ -33,6 +33,13 @@ st.markdown("""
     ul[data-baseweb="menu"], div[data-baseweb="popover"] { background-color: #080808 !important; border: 1px solid #333 !important; }
     li[data-baseweb="option"] { color: #00FF41 !important; }
     
+    /* INPUT FIELDS (Number Input) */
+    div[data-baseweb="input"] > div {
+        background-color: #0A0A0A !important;
+        color: #00FF41 !important;
+        border: 1px solid #333 !important;
+    }
+
     /* STEALTH BUTTONS */
     div.stButton > button {
         background-color: #0A0A0A !important;
@@ -130,74 +137,87 @@ class BioEngine:
         # DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 5. THE PID CONTROLLER BRAIN (NEW LOGIC) ---
-class PIDAgent:
+# --- 5. THE ANNEALING AGENT BRAIN ---
+class AnnealingAgent:
     def __init__(self, start_capex, start_redundancy):
         self.current_params = [start_capex, start_redundancy] 
         self.best_params = [start_capex, start_redundancy]
         self.best_score = 0
-        self.learning_rate = 0.02 # Smaller, safer steps
+        
+        # ANNEALING PHYSICS
+        self.temperature = 1.0  # Start HOT (High randomness)
+        self.cooling_rate = 0.005 # Cool down slowly
+        self.min_temp = 0.01      # Minimum temperature (Precision mode)
+        
         self.cooldown = 0
-        
-        # PID MEMORY
-        self.last_action = None # (Index, Change_Amount)
-        self.score_buffer = [] # Moving average buffer
-        
+        self.last_action_idx = 0
+        self.last_change = 0
+
     def propose_action(self):
         if self.cooldown > 0:
             self.cooldown -= 1
             return self.current_params, True 
         
-        # Pick a parameter to tune
+        # Adaptive Step Size based on Temperature
+        # Hot = Big Steps (Exploration), Cold = Tiny Steps (Refinement)
+        step_magnitude = 0.05 * self.temperature 
+        
         idx = random.choice([0, 1])
-        change = random.choice([-self.learning_rate, self.learning_rate])
+        change = random.choice([-step_magnitude, step_magnitude])
         
         candidate = self.current_params.copy()
         candidate[idx] += change
         
         # Clamp
-        candidate[0] = max(0.05, min(0.95, candidate[0])) 
-        candidate[1] = max(0.1, min(1.4, candidate[1]))  
+        candidate[0] = max(0.01, min(0.99, candidate[0])) 
+        candidate[1] = max(0.1, min(1.5, candidate[1]))  
         
-        self.last_action = (idx, change) # Remember what we did
-        self.cooldown = 3 # Longer wait time (3 frames) for stability
+        self.last_action_idx = idx
+        self.last_change = change
+        self.cooldown = 2 
         
         return candidate, False 
 
     def learn(self, efficiency_score, candidate_params):
         if self.cooldown > 0:
-            return f"Averaging telemetry... ({self.cooldown})"
-        
-        # Use Moving Average to filter noise
-        self.score_buffer.append(efficiency_score)
-        if len(self.score_buffer) > 3: self.score_buffer.pop(0)
-        avg_score = sum(self.score_buffer) / len(self.score_buffer)
+            return f"Heat: {int(self.temperature*100)}% | Assessing..."
         
         msg = ""
         
-        # EVALUATION LOGIC
-        if avg_score > self.best_score:
-            # IT WORKED: Keep it and update baseline
-            improvement = avg_score - self.best_score
-            self.best_score = avg_score
+        # COOLING PROCESS
+        self.temperature = max(self.min_temp, self.temperature - self.cooling_rate)
+        
+        # ACCEPTANCE PROBABILITY (Metropolis Criterion)
+        # Even if a move is bad, accept it sometimes if Temperature is high
+        # This allows jumping out of "Local Maxima" traps
+        delta = efficiency_score - self.best_score
+        
+        if delta > 0:
+            # Improvement: Always Accept
+            self.best_score = efficiency_score
             self.best_params = candidate_params
             self.current_params = candidate_params
-            msg = f"SUCCESS: Avg Efficiency {int(avg_score)}% (+{int(improvement)}%). Holding."
+            msg = f"SUCCESS: New Best {int(efficiency_score)}%. Cooling."
         else:
-            # IT FAILED: Revert immediately
-            idx, change = self.last_action
-            # Revert logic: Undo the change
-            reverted_params = candidate_params.copy()
-            reverted_params[idx] -= change 
-            
-            self.current_params = reverted_params # Force physical revert
-            msg = f"FAIL: Efficiency dropped to {int(avg_score)}%. Reverting change."
+            # Bad Move: Accept based on probability & temperature
+            # Probability = exp(delta / temperature)
+            prob = np.exp(delta / (self.temperature * 10)) # Scaling factor
+            if random.random() < prob:
+                # Accept Bad Move (Exploration)
+                self.current_params = candidate_params
+                msg = f"WARN: Exploring Risk Vector (Temp: {int(self.temperature*100)}%)."
+            else:
+                # Reject Bad Move (Revert)
+                revert = candidate_params.copy()
+                revert[self.last_action_idx] -= self.last_change
+                self.current_params = revert
+                msg = f"FAIL: Signal unstable. Reverting."
             
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v27' not in st.session_state:
-    st.session_state.engine_v27 = None
+if 'engine_v28' not in st.session_state:
+    st.session_state.engine_v28 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -217,11 +237,16 @@ is_agent = (control_mode == "🤖 Autonomous Agent")
 # 1. SCENARIO CUSTOMIZATION
 st.sidebar.markdown("#### 1. NETWORK SCALE")
 node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_state.nodes))
+
+# --- NEW: MANUAL BASELINE INPUT ---
+manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=250, step=10, help="Set your organizational budget constraint line.")
+# ----------------------------------
+
 reshuffle = st.sidebar.button("Randomize")
 
 # Handle Reset
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v27 = None
+    st.session_state.engine_v28 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -234,7 +259,7 @@ if reshuffle or len(st.session_state.nodes) != node_count:
 
 preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v27 = None
+    st.session_state.engine_v28 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
     if preset == "Diamond (Regional)":
@@ -256,11 +281,11 @@ st.sidebar.markdown("---")
 # 2. AGENT LOGIC (Calculated BEFORE Sliders)
 if is_agent:
     if 'agent_brain' not in st.session_state:
-        st.session_state.agent_brain = PIDAgent(st.session_state.capex_key, st.session_state.redundancy_key)
-        st.session_state.agent_log.append("Agent: PID Controller Engaged. Smoothing inputs...")
+        st.session_state.agent_brain = AnnealingAgent(st.session_state.capex_key, st.session_state.redundancy_key)
+        st.session_state.agent_log.append("Agent: Annealing Algorithm Loaded. Heating Up...")
     
     st.sidebar.markdown("#### 2. AGENT SERVO CONTROL")
-    st.sidebar.info(f"Optimization Active. Smoothing Variance...")
+    st.sidebar.info(f"Optimization Active. Target > 90%.")
     
     # 1. AGENT PROPOSES PARAMETERS
     proposed_params, is_waiting = st.session_state.agent_brain.propose_action()
@@ -286,10 +311,10 @@ traffic_load = st.sidebar.slider("Load (Agents)", 1000, 10000, 5000)
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v27 is None or st.session_state.engine_v27.num_agents != traffic_load:
-    st.session_state.engine_v27 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v28 is None or st.session_state.engine_v28.num_agents != traffic_load:
+    st.session_state.engine_v28 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v27
+engine = st.session_state.engine_v28
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -307,9 +332,11 @@ capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
 # --- 9. AGENT LEARNING (FEEDBACK LOOP) ---
 if is_agent:
+    # 3. AGENT LEARNS FROM RESULT
     log_msg = st.session_state.agent_brain.learn(capex_efficiency, [capex_pref, redundancy_pref])
     
-    if "Averaging" in log_msg:
+    # Update log
+    if "Heat" in log_msg:
         pass 
     elif not st.session_state.agent_log or st.session_state.agent_log[-1] != f"Agent: {log_msg}":
         st.session_state.agent_log.append(f"Agent: {log_msg}")
@@ -318,7 +345,7 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v27: PID CONTROL")
+    st.markdown("### 🕸️ NET-OPT v28: ANNEALING")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
@@ -338,6 +365,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# METRICS
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("DATA CENTERS", f"{len(nodes_arr)}")
 m2.metric("MINIMUM VIABLE", f"{int(mst_cost)} km")
@@ -386,15 +414,24 @@ with col_vis2:
 # 3. TELEMETRY STACK (ALWAYS VISIBLE)
 with col_stats:
     st.markdown("**3. COST CONVERGENCE**")
-    st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
+    # Store Manual Budget in history for plotting
+    st.session_state.history.append({
+        "MST Baseline": float(mst_cost), 
+        "Bio-Solver": float(cable_volume),
+        "Manual Budget": float(manual_budget)
+    })
     if len(st.session_state.history) > 80: st.session_state.history.pop(0)
     
     chart_data = pd.DataFrame(st.session_state.history)
     fig3, ax3 = plt.subplots(figsize=(4, 2.5))
     
     if not chart_data.empty:
-        ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Optimal (MST)")
-        ax3.plot(chart_data["Bio-Solver"], color='#00FF41', linewidth=1.5, label="Actual Cost")
+        # Plot MST (Auto-calculated optimal)
+        ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Mathematical Min")
+        # Plot Actual Cost (Agent)
+        ax3.plot(chart_data["Bio-Solver"], color='#00FF41', linewidth=1.5, label="Current Spend")
+        # Plot Manual Budget (User Goal)
+        ax3.plot(chart_data["Manual Budget"], color='#FF4B4B', linestyle=':', linewidth=1.5, label="Target Budget")
         
     ax3.grid(color='#222', linestyle='-', linewidth=0.5)
     ax3.spines['bottom'].set_color('#444')
