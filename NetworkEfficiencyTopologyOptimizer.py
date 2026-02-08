@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v32: Global Command", 
+    page_title="NetOpt v33: Stable Core", 
     layout="wide", 
-    page_icon="🌍",
+    page_icon="💠",
     initial_sidebar_state="expanded"
 )
 
@@ -171,7 +171,7 @@ class CommandAgent:
         cmd = cmd.lower()
         msg = "CMD: Unknown Command."
         
-        # --- NEW COMMANDS ---
+        # --- COMMAND PARSING ---
         if "freeze" in cmd or "halt" in cmd:
             self.is_frozen = True
             msg = "CMD: SYSTEM PAUSED. Optimizers Locked."
@@ -184,34 +184,27 @@ class CommandAgent:
             msg = "CMD: PRIORITY >> BALANCED GROWTH."
             
         elif "audit" in cmd or "status" in cmd:
-            # Does not change params, just prints info
-            msg = f"AUDIT: Mode={self.override_mode or 'AUTO'} | Nodes={self.learning_rate:.2f}x | Temp=STABLE"
+            msg = f"AUDIT: Mode={self.override_mode or 'AUTO'} | Rate={self.learning_rate:.2f} | Status={'FROZEN' if self.is_frozen else 'ACTIVE'}"
 
-        # --- EXISTING COMMANDS ---
         elif "speed" in cmd or "fast" in cmd:
             self.override_mode = "SPEED"
-            self.current_params[1] = 0.3 
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> LOW LATENCY."
+            msg = "CMD: PRIORITY >> LOW LATENCY. (Enforcing Low Redundancy)"
             
         elif "cost" in cmd or "budget" in cmd:
             self.override_mode = "COST"
-            self.current_params[0] = 0.98 
-            self.current_params[1] = 0.4  
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> MINIMAL CAPEX."
+            msg = "CMD: PRIORITY >> MINIMAL CAPEX. (Enforcing High Decay)"
             
         elif "stable" in cmd or "safe" in cmd or "emergency" in cmd:
             self.override_mode = "STABLE"
-            self.current_params[0] = 0.5 
-            self.current_params[1] = 1.4 
             self.is_frozen = False
-            msg = "CMD: PRIORITY >> MAX REDUNDANCY."
+            msg = "CMD: PRIORITY >> MAX REDUNDANCY. (Spare no expense)"
             
         elif "reset" in cmd or "auto" in cmd:
             self.override_mode = None
             self.is_frozen = False
-            msg = "CMD: MANUAL OVERRIDE CLEARED."
+            msg = "CMD: MANUAL OVERRIDE CLEARED. Resuming Logic."
             
         return msg, self.current_params
 
@@ -224,15 +217,37 @@ class CommandAgent:
             self.cooldown -= 1
             return self.current_params, True 
         
-        # LOAD REACTION LOGIC
-        if current_load > 7000 and self.override_mode is None:
-             self.current_params[1] = max(self.current_params[1], 1.1)
+        # --- ENFORCED BEHAVIOR (The Fix) ---
+        # If a command is active, biased randomness pushes sliders in that direction
+        # regardless of efficiency score initially.
         
-        # STANDARD OPTIMIZATION LOOP
         idx = random.choice([0, 1])
         change = random.choice([-self.learning_rate, self.learning_rate])
+
+        # Bias the change based on Mode
+        if self.override_mode == "SPEED":
+            # SPEED MODE: Wants Redundancy (idx 1) LOW (Negative change favored)
+            if idx == 1 and change > 0: change *= -0.5 # Punish increasing redundancy
+            if idx == 1 and self.current_params[1] > 0.4: change = -abs(change) # Force down if high
+
+        elif self.override_mode == "COST":
+            # COST MODE: Wants Capex (idx 0) HIGH (Decay High = Cheap)
+            # Note: Slider is "Decay", so 1.0 = High Decay = Cheap
+            if idx == 0 and change < 0: change *= -0.5 # Punish spending money
+            if idx == 0 and self.current_params[0] < 0.9: change = abs(change) # Force up if low
+            
+        elif self.override_mode == "STABLE":
+            # STABLE MODE: Wants Redundancy (idx 1) HIGH
+            if idx == 1 and change < 0: change *= -0.5 # Punish removing cables
+            if idx == 1 and self.current_params[1] < 1.2: change = abs(change) # Force up if low
+
+        # Apply Change
         candidate = self.current_params.copy()
         candidate[idx] += change
+        
+        # LOAD REACTION (Autonomic Nervous System)
+        if current_load > 7000 and self.override_mode is None:
+             candidate[1] = max(candidate[1], 1.1) # Stress reaction
         
         # CLAMPING
         candidate[0] = max(0.01, min(0.99, candidate[0])) 
@@ -251,6 +266,16 @@ class CommandAgent:
         msg = ""
         delta = efficiency_score - self.best_score
         
+        # If we have an override mode, we care less about "efficiency score"
+        # and more about meeting the command.
+        
+        if self.override_mode:
+            self.best_score = efficiency_score
+            self.best_params = candidate_params
+            self.current_params = candidate_params
+            return f"EXECUTING: {self.override_mode} PROTOCOLS."
+
+        # STANDARD LEARNING
         if delta > -5: 
             if delta > 0:
                 self.best_score = efficiency_score
@@ -269,8 +294,8 @@ class CommandAgent:
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v32' not in st.session_state:
-    st.session_state.engine_v32 = None
+if 'engine_v33' not in st.session_state:
+    st.session_state.engine_v33 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -295,7 +320,7 @@ manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=
 reshuffle = st.sidebar.button("Randomize")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v32 = None
+    st.session_state.engine_v33 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -306,24 +331,18 @@ if reshuffle or len(st.session_state.nodes) != node_count:
     st.session_state.nodes = new_nodes
     st.rerun()
 
-# --- PRESET LOADER (EXPANDED) ---
+# --- PRESET LOADER ---
 preset_options = [
-    "Diamond (Regional)", 
-    "Pentagon Ring", 
-    "Grid (Urban)", 
-    "Hub-Spoke (Enterprise)", 
-    "Twin Cities (Dual Cluster)", 
-    "Global Link (Trans-Oceanic)",
-    "Starlink (LEO Mesh)"
+    "Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)", 
+    "Twin Cities (Dual Cluster)", "Global Link (Trans-Oceanic)", "Starlink (LEO Mesh)"
 ]
 preset = st.sidebar.selectbox("Load Preset", preset_options)
 
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v32 = None
+    st.session_state.engine_v33 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
     
-    # --- PRESET LOGIC ---
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -337,17 +356,14 @@ if st.sidebar.button("⚠️ LOAD PRESET"):
         nodes.extend([[150 + 110*np.cos(a), 150 + 110*np.sin(a)] for a in np.linspace(0, 2*np.pi, 7)[:-1]])
         st.session_state.nodes = nodes
     elif preset == "Twin Cities (Dual Cluster)":
-        # Two clusters at (80,80) and (220,220)
         c1 = [[np.random.randint(50, 110), np.random.randint(50, 110)] for _ in range(4)]
         c2 = [[np.random.randint(190, 250), np.random.randint(190, 250)] for _ in range(4)]
         st.session_state.nodes = c1 + c2
     elif preset == "Global Link (Trans-Oceanic)":
-        # Left Coast vs Right Coast
         left = [[50, y] for y in np.linspace(50, 250, 5)]
         right = [[250, y] for y in np.linspace(50, 250, 5)]
         st.session_state.nodes = left + right
     elif preset == "Starlink (LEO Mesh)":
-        # Random Scatter
         st.session_state.nodes = [[np.random.randint(20, 280), np.random.randint(20, 280)] for _ in range(12)]
         
     st.rerun()
@@ -363,10 +379,13 @@ if is_agent:
     st.sidebar.markdown("#### 2. AGENT SERVO CONTROL")
     st.sidebar.info(f"Optimization Active. Target > 90%.")
     
-    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(0)
+    # PROPOSE ACTION
+    # We pass '0' load as placeholder, real load passed later
+    # But we can grab slider value here for the check
     
-    st.session_state.capex_key = proposed_params[0]
-    st.session_state.redundancy_key = proposed_params[1]
+    # UPDATE SESSION STATE
+    # Note: We do this AFTER rendering sliders to prevent 'Value > Max' error cycle? 
+    # No, we must do it before rendering sliders so they show current state.
     
     latency_pref = 3.0
     terrain_diff = 0.1
@@ -376,7 +395,7 @@ else:
     latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
     terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
 
-# 3. RENDER SLIDERS
+# 3. RENDER SLIDERS (HARD CLAMPED)
 safe_capex = float(np.clip(st.session_state.capex_key, 0.0, 1.0))
 safe_redundancy = float(np.clip(st.session_state.redundancy_key, 0.1, 1.5))
 
@@ -384,20 +403,33 @@ capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, value=safe_capex
 redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, value=safe_redundancy, key="redundancy_slider")
 traffic_load = st.sidebar.slider("Load (Agents)", 1000, 8000, 5000)
 
-# 4. COMMAND CONSOLE
+# Sync sliders back to state if manual
+if not is_agent:
+    st.session_state.capex_key = capex_pref
+    st.session_state.redundancy_key = redundancy_pref
+
+# AGENT THINKING (If Active)
+if is_agent:
+    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(traffic_load)
+    st.session_state.capex_key = proposed_params[0]
+    st.session_state.redundancy_key = proposed_params[1]
+
+# 4. COMMAND CONSOLE (AT BOTTOM - BUFFERED FORM)
 if is_agent:
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### 💻 COMMAND LINE")
-    user_cmd = st.sidebar.text_input("ENTER COMMAND >_", key="cmd_input")
     
-    if user_cmd:
+    # FORM WRAPPER TO PREVENT FLASHING/RELOADING ON TYPING
+    with st.sidebar.form(key='cli_form', clear_on_submit=True):
+        user_cmd = st.text_input("ENTER COMMAND >_", placeholder="Type 'HELP' for list")
+        submit_btn = st.form_submit_button("EXECUTE")
+    
+    if submit_btn and user_cmd:
         msg, new_params = st.session_state.agent_brain.process_command(user_cmd)
         st.session_state.capex_key = new_params[0]
         st.session_state.redundancy_key = new_params[1]
-        
-        if not st.session_state.agent_log or st.session_state.agent_log[-1] != msg:
-            st.session_state.agent_log.append(msg)
-            st.rerun()
+        st.session_state.agent_log.append(msg)
+        st.rerun()
 
     # TACTICAL INDEX
     st.sidebar.markdown("""
@@ -412,18 +444,13 @@ if is_agent:
     </div>
     """, unsafe_allow_html=True)
 
-# Sync sliders back to state
-if not is_agent:
-    st.session_state.capex_key = capex_pref
-    st.session_state.redundancy_key = redundancy_pref
-
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v32 is None or st.session_state.engine_v32.num_agents != traffic_load:
-    st.session_state.engine_v32 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v33 is None or st.session_state.engine_v33.num_agents != traffic_load:
+    st.session_state.engine_v33 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v32
+engine = st.session_state.engine_v33
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -452,7 +479,7 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v32: GLOBAL COMMAND")
+    st.markdown("### 🕸️ NET-OPT v33: STABLE CORE")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
