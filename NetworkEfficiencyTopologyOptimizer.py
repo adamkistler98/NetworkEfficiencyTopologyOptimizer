@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v29: Command Console", 
+    page_title="NetOpt v30: Ironclad", 
     layout="wide", 
-    page_icon="💻",
+    page_icon="🛡️",
     initial_sidebar_state="expanded"
 )
 
@@ -146,56 +146,59 @@ class CommandAgent:
         self.best_score = 0
         
         # INTELLIGENCE SCALING
-        # More nodes = Higher Learning Rate (Needs bigger swings to see results)
         self.learning_rate = 0.05 * (1 + (node_complexity * 0.1))
         
         self.cooldown = 0
         self.last_action_idx = 0
         self.last_change = 0
         
-        self.override_mode = None # "SPEED", "COST", "STABLE"
+        self.override_mode = None 
 
     def process_command(self, cmd):
         cmd = cmd.lower()
         msg = "CMD: Unknown"
+        
+        # KEYWORD MATCHING
         if "speed" in cmd or "fast" in cmd:
             self.override_mode = "SPEED"
-            self.learning_rate = 0.1 # Aggressive
-            msg = "CMD ACK: Priority -> LOW LATENCY. Aggressive Optimization."
-        elif "cost" in cmd or "budget" in cmd or "cheap" in cmd:
+            self.current_params[1] = 0.3 # Low Redundancy
+            msg = "CMD: PRIORITY >> LOW LATENCY."
+            
+        elif "cost" in cmd or "budget" in cmd or "penny" in cmd:
             self.override_mode = "COST"
-            self.current_params[0] = 0.95 # Force High Capex Limit
-            msg = "CMD ACK: Priority -> MINIMAL CAPEX. Slashing redundancy."
-        elif "stable" in cmd or "safe" in cmd:
+            self.current_params[0] = 0.98 # Max Capex Limit (Cheap)
+            self.current_params[1] = 0.4  # Low Redundancy
+            msg = "CMD: PRIORITY >> MINIMAL CAPEX."
+            
+        elif "stable" in cmd or "safe" in cmd or "emergency" in cmd:
             self.override_mode = "STABLE"
-            self.current_params[1] = 1.2 # Force High Redundancy
-            msg = "CMD ACK: Priority -> MAX REDUNDANCY. Adding backup routes."
-        elif "reset" in cmd:
+            self.current_params[0] = 0.5  # Spend Money
+            self.current_params[1] = 1.4  # Max Redundancy
+            msg = "CMD: PRIORITY >> MAX REDUNDANCY."
+            
+        elif "reset" in cmd or "auto" in cmd:
             self.override_mode = None
-            msg = "CMD ACK: Manual Override Cleared. Resuming Auto-Pilot."
-        return msg
+            msg = "CMD: MANUAL OVERRIDE CLEARED."
+            
+        return msg, self.current_params
 
-    def propose_action(self):
+    def propose_action(self, current_load):
         if self.cooldown > 0:
             self.cooldown -= 1
             return self.current_params, True 
         
-        # Override Logic
-        if self.override_mode == "SPEED":
-            # Just jitter redundancy, keep capex flexible
-            idx = 1 
-        elif self.override_mode == "COST":
-            # Only optimize Redundancy (keep Capex High)
-            idx = 1
-        else:
-            # Standard Auto-Pilot
-            idx = random.choice([0, 1])
-
+        # LOAD REACTION LOGIC
+        # If Load is High (>7000), Force Redundancy UP automatically
+        if current_load > 7000 and self.override_mode is None:
+             self.current_params[1] = max(self.current_params[1], 1.1)
+        
+        # STANDARD OPTIMIZATION LOOP
+        idx = random.choice([0, 1])
         change = random.choice([-self.learning_rate, self.learning_rate])
         candidate = self.current_params.copy()
         candidate[idx] += change
         
-        # Clamp
+        # CLAMPING (Software Side)
         candidate[0] = max(0.01, min(0.99, candidate[0])) 
         candidate[1] = max(0.1, min(1.5, candidate[1]))  
         
@@ -212,8 +215,7 @@ class CommandAgent:
         msg = ""
         delta = efficiency_score - self.best_score
         
-        # ANNEALING LOGIC (Accept bad moves if small, to escape traps)
-        if delta > -5: # Very tolerant of small drops to find global max
+        if delta > -5: 
             if delta > 0:
                 self.best_score = efficiency_score
                 self.best_params = candidate_params
@@ -223,7 +225,6 @@ class CommandAgent:
                 self.current_params = candidate_params
                 msg = "HOLD: Exploring local minima..."
         else:
-            # Revert big drops
             revert = candidate_params.copy()
             revert[self.last_action_idx] -= self.last_change
             self.current_params = revert
@@ -232,8 +233,8 @@ class CommandAgent:
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v29' not in st.session_state:
-    st.session_state.engine_v29 = None
+if 'engine_v30' not in st.session_state:
+    st.session_state.engine_v30 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -241,7 +242,7 @@ if 'history' not in st.session_state:
 if 'agent_log' not in st.session_state:
     st.session_state.agent_log = ["Agent initialized. Awaiting feedback loop..."]
 
-# Initialize keys if missing
+# Initialize keys
 if 'capex_key' not in st.session_state: st.session_state.capex_key = 0.8
 if 'redundancy_key' not in st.session_state: st.session_state.redundancy_key = 0.7
 
@@ -257,9 +258,8 @@ manual_budget = st.sidebar.number_input("Target Budget (k)", min_value=0, value=
 
 reshuffle = st.sidebar.button("Randomize")
 
-# Handle Reset
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v29 = None
+    st.session_state.engine_v30 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
@@ -272,7 +272,7 @@ if reshuffle or len(st.session_state.nodes) != node_count:
 
 preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v29 = None
+    st.session_state.engine_v30 = None
     st.session_state.history = []
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
     if preset == "Diamond (Regional)":
@@ -291,10 +291,13 @@ if st.sidebar.button("⚠️ LOAD PRESET"):
 
 st.sidebar.markdown("---")
 
-# 2. AGENT LOGIC (Calculated BEFORE Sliders)
+# SLIDERS (Rendered first to capture state)
+# We clamp the TRAFFIC LOAD to prevent crashes (Max 8000 agents)
+traffic_load = st.sidebar.slider("Load (Agents)", 1000, 8000, 5000)
+
+# 2. AGENT LOGIC
 if is_agent:
     if 'agent_brain' not in st.session_state:
-        # Pass Node Count as Complexity Factor
         st.session_state.agent_brain = CommandAgent(st.session_state.capex_key, st.session_state.redundancy_key, len(st.session_state.nodes))
         st.session_state.agent_log.append("Agent: Command Interface Online.")
     
@@ -303,13 +306,17 @@ if is_agent:
     # CHAT INPUT
     user_cmd = st.sidebar.text_input("CONSOLE OVERRIDE >_", key="cmd_input")
     if user_cmd:
-        # Process command and log response
-        response = st.session_state.agent_brain.process_command(user_cmd)
-        if not st.session_state.agent_log or st.session_state.agent_log[-1] != response:
-            st.session_state.agent_log.append(response)
+        msg, new_params = st.session_state.agent_brain.process_command(user_cmd)
+        # Apply overrides immediately
+        st.session_state.capex_key = new_params[0]
+        st.session_state.redundancy_key = new_params[1]
+        
+        if not st.session_state.agent_log or st.session_state.agent_log[-1] != msg:
+            st.session_state.agent_log.append(msg)
+            st.rerun() # Instant Refresh on Command
     
     # 1. AGENT PROPOSES PARAMETERS
-    proposed_params, is_waiting = st.session_state.agent_brain.propose_action()
+    proposed_params, is_waiting = st.session_state.agent_brain.propose_action(traffic_load)
     
     # 2. UPDATE SESSION STATE (Physical Slider Movement)
     st.session_state.capex_key = proposed_params[0]
@@ -319,23 +326,29 @@ if is_agent:
     terrain_diff = 0.1
 else:
     if 'agent_brain' in st.session_state: del st.session_state.agent_brain
-    
     st.sidebar.markdown("#### 2. MANUAL OVERRIDE")
     latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
     terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
 
-# 3. RENDER SLIDERS (Using Session State Keys)
-capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, key="capex_key")
-redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, key="redundancy_key")
-traffic_load = st.sidebar.slider("Load (Agents)", 1000, 10000, 5000)
+# 3. RENDER SLIDERS (HARD CLAMPED to avoid Value > Max errors)
+safe_capex = float(np.clip(st.session_state.capex_key, 0.0, 1.0))
+safe_redundancy = float(np.clip(st.session_state.redundancy_key, 0.1, 1.5))
+
+capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, value=safe_capex, key="capex_slider")
+redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, value=safe_redundancy, key="redundancy_slider")
+
+# Sync sliders back to state (for manual mode)
+if not is_agent:
+    st.session_state.capex_key = capex_pref
+    st.session_state.redundancy_key = redundancy_pref
 
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v29 is None or st.session_state.engine_v29.num_agents != traffic_load:
-    st.session_state.engine_v29 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v30 is None or st.session_state.engine_v30.num_agents != traffic_load:
+    st.session_state.engine_v30 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v29
+engine = st.session_state.engine_v30
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -364,7 +377,7 @@ if is_agent:
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v29: COMMAND CONSOLE")
+    st.markdown("### 🕸️ NET-OPT v30: IRONCLAD")
     mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
@@ -404,7 +417,7 @@ with col_vis1:
         ax1.scatter(nodes_arr[:, 0], nodes_arr[:, 1], c='white', s=25, edgecolors='cyan', zorder=10)
     ax1.axis('off')
     fig1.tight_layout(pad=0)
-    st.pyplot(fig1, use_container_width=True)
+    st.pyplot(fig1, width="stretch") # FIX DEPRECATION WARNING
     st.caption("Heatmap shows packet congestion. High Latency Priority forces straighter, hotter paths.")
 
 with col_vis2:
@@ -427,7 +440,7 @@ with col_vis2:
 
     ax2.axis('off')
     fig2.tight_layout(pad=0)
-    st.pyplot(fig2, use_container_width=True)
+    st.pyplot(fig2, width="stretch") # FIX DEPRECATION WARNING
     st.caption("Green = Core Backbone. Blue = Failover. Terrain difficulty adds jitter to these paths.")
 
 # 3. TELEMETRY STACK (ALWAYS VISIBLE)
@@ -444,11 +457,8 @@ with col_stats:
     fig3, ax3 = plt.subplots(figsize=(4, 2.5))
     
     if not chart_data.empty:
-        # Plot MST (Auto-calculated optimal)
-        ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Mathematical Min")
-        # Plot Actual Cost (Agent)
-        ax3.plot(chart_data["Bio-Solver"], color='#00FF41', linewidth=1.5, label="Current Spend")
-        # Plot Manual Budget (User Goal) - STATIC LINE ACROSS CHART
+        ax3.plot(chart_data["MST Baseline"], color='#444444', linestyle='--', linewidth=1, label="Optimal (MST)")
+        ax3.plot(chart_data["Bio-Solver"], color='#00FF41', linewidth=1.5, label="Actual Cost")
         ax3.axhline(y=manual_budget, color='#FF4B4B', linestyle=':', linewidth=1.5, label=f"Target ({int(manual_budget)}k)")
         
     ax3.grid(color='#222', linestyle='-', linewidth=0.5)
@@ -458,7 +468,7 @@ with col_stats:
     ax3.spines['right'].set_visible(False)
     ax3.legend(frameon=False, labelcolor='#888', fontsize=8, loc='upper right')
     
-    st.pyplot(fig3, use_container_width=True)
+    st.pyplot(fig3, width="stretch") # FIX DEPRECATION WARNING
     
     # 4. AGENT TERMINAL (STACKED BELOW)
     st.markdown("**4. AGENT TERMINAL**")
