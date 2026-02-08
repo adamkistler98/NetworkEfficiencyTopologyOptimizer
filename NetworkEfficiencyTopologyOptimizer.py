@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v23: Adaptive", 
+    page_title="NetOpt v24: Ghost UI", 
     layout="wide", 
-    page_icon="🧠",
+    page_icon="👻",
     initial_sidebar_state="expanded"
 )
 
@@ -45,14 +45,9 @@ st.markdown("""
         color: #00FF41 !important;
     }
     
-    /* TEXT & METRICS */
-    h1, h2, h3, h4 { color: #00FF41 !important; font-family: 'Courier New', monospace; letter-spacing: -1px; margin: 0px; }
-    p, label, .stCaption { color: #888 !important; font-family: 'Consolas', monospace; }
-    
-    /* COMPACT METRICS BOXES */
-    div[data-testid="stMetric"] { background-color: #0A0A0A; border: 1px solid #222; padding: 5px !important; border-left: 3px solid #00FF41; }
-    div[data-testid="stMetricValue"] { font-size: 18px !important; color: #00FF41 !important; }
-    div[data-testid="stMetricLabel"] { font-size: 10px !important; color: #666 !important; }
+    /* SLIDER GHOST MODE */
+    /* When disabled, keep them visible but dim, looking like 'remote control' */
+    .stSlider [data-baseweb="slider"] { opacity: 1 !important; }
     
     /* AGENT TERMINAL STYLE */
     .agent-terminal {
@@ -146,7 +141,7 @@ class AdaptiveAgent:
         self.best_score = 0
         self.learning_rate = 0.05
         self.cooldown = 0
-        self.fail_streak = 0  # <--- NEW: Track failures
+        self.fail_streak = 0 
         
     def propose_action(self):
         if self.cooldown > 0:
@@ -161,10 +156,10 @@ class AdaptiveAgent:
         candidate[action_idx] += change
         
         # Clamp
-        candidate[0] = max(0.1, min(0.99, candidate[0])) 
+        candidate[0] = max(0.01, min(0.99, candidate[0])) 
         candidate[1] = max(0.1, min(1.5, candidate[1]))  
         
-        self.cooldown = 2 # Shorter cooldown (2 frames) for faster adaptation
+        self.cooldown = 2 
         return candidate, False 
 
     def learn(self, efficiency_score, candidate_params):
@@ -172,7 +167,6 @@ class AdaptiveAgent:
             return f"Analyzing topology... ({self.cooldown})"
         
         msg = ""
-        
         # 1. CHECK FOR SPIRAL OF DEATH
         if self.fail_streak >= 4:
             self.best_score = efficiency_score # Reset baseline
@@ -182,7 +176,6 @@ class AdaptiveAgent:
             return f"WARN: Baseline drift detected. Re-calibrating to {int(efficiency_score)}%."
 
         # 2. STANDARD EVALUATION
-        # Allow small fluctuations (noise tolerance = 3%)
         if efficiency_score >= self.best_score - 3: 
             if efficiency_score > self.best_score:
                 improvement = efficiency_score - self.best_score
@@ -190,20 +183,20 @@ class AdaptiveAgent:
                 self.best_score = efficiency_score
                 self.best_params = candidate_params
                 self.current_params = candidate_params
-                self.fail_streak = 0 # Reset streak on success
+                self.fail_streak = 0 
             else:
                 msg = "HOLD: Stable configuration. Exploring..."
                 self.current_params = candidate_params
         else:
             msg = f"FAIL: Signal loss ({int(efficiency_score)}%). Reverting."
             self.current_params = self.best_params # Revert
-            self.fail_streak += 1 # Increment failure count
+            self.fail_streak += 1 
             
         return msg
 
 # --- 6. STATE MANAGEMENT ---
-if 'engine_v23' not in st.session_state:
-    st.session_state.engine_v23 = None
+if 'engine_v24' not in st.session_state:
+    st.session_state.engine_v24 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
@@ -213,9 +206,14 @@ if 'agent_log' not in st.session_state:
 if 'agent_brain' not in st.session_state:
     st.session_state.agent_brain = AdaptiveAgent()
 
+# Initialize Slider Keys if missing
+if 'capex_key' not in st.session_state: st.session_state.capex_key = 0.8
+if 'redundancy_key' not in st.session_state: st.session_state.redundancy_key = 0.7
+
 # --- 7. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
 control_mode = st.sidebar.radio("Operation Mode", ["Manual Operator", "🤖 Autonomous Agent"], horizontal=True)
+is_agent = (control_mode == "🤖 Autonomous Agent")
 
 # 1. SCENARIO CUSTOMIZATION
 st.sidebar.markdown("#### 1. NETWORK SCALE")
@@ -223,7 +221,7 @@ node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_s
 reshuffle = st.sidebar.button("🎲 Reshuffle Locations")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v23 = None
+    st.session_state.engine_v24 = None
     st.session_state.history = []
     st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
     st.session_state.agent_brain = AdaptiveAgent() # Reset brain
@@ -236,7 +234,7 @@ if reshuffle or len(st.session_state.nodes) != node_count:
 
 preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v23 = None
+    st.session_state.engine_v24 = None
     st.session_state.history = []
     st.session_state.agent_brain = AdaptiveAgent()
     if preset == "Diamond (Regional)":
@@ -256,36 +254,39 @@ if st.sidebar.button("⚠️ LOAD PRESET"):
 st.sidebar.markdown("---")
 
 # 2. PARAMETERS (Context Sensitive)
-if control_mode == "Manual Operator":
-    st.sidebar.markdown("#### 2. MANUAL OVERRIDE")
-    capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, 0.8)
-    redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, 0.7)
-    traffic_load = st.sidebar.slider("Load (Agents)", 1000, 10000, 5000)
-    latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
-    terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
-    
-else: # AGENT MODE
-    st.sidebar.markdown("#### 2. AGENT OBJECTIVES")
-    st.sidebar.info(f"Agent managing {len(st.session_state.nodes)} nodes. Evolving solution...")
-    traffic_load = 5000 
+if is_agent:
+    st.sidebar.markdown("#### 2. AGENT CONTROL")
+    st.sidebar.info(f"Agent managing {len(st.session_state.nodes)} nodes. Optimizing parameters...")
     
     # 1. AGENT PROPOSES PARAMETERS
     proposed_params, is_waiting = st.session_state.agent_brain.propose_action()
-    capex_pref = proposed_params[0]
-    redundancy_pref = proposed_params[1]
+    
+    # 2. UPDATE SESSION STATE (GHOST MOVEMENT)
+    st.session_state.capex_key = proposed_params[0]
+    st.session_state.redundancy_key = proposed_params[1]
     
     # Fixed Physics for Agent
     latency_pref = 3.0
     terrain_diff = 0.1
+else:
+    st.sidebar.markdown("#### 2. MANUAL OVERRIDE")
+    latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
+    terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
+
+# RENDER SLIDERS (GHOST MODE: Disabled but values update)
+# We use key=... to bind them to session state, so they move when agent updates state
+capex_pref = st.sidebar.slider("CAPEX Limit (Decay)", 0.0, 1.0, key="capex_key", disabled=is_agent)
+redundancy_pref = st.sidebar.slider("Failover Risk (Angle)", 0.1, 1.5, key="redundancy_key", disabled=is_agent)
+traffic_load = st.sidebar.slider("Load (Agents)", 1000, 10000, 5000)
 
 # Derived logic
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v23 is None or st.session_state.engine_v23.num_agents != traffic_load:
-    st.session_state.engine_v23 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v24 is None or st.session_state.engine_v24.num_agents != traffic_load:
+    st.session_state.engine_v24 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v23
+engine = st.session_state.engine_v24
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -303,8 +304,8 @@ cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
 # --- 9. AGENT LEARNING (FEEDBACK LOOP) ---
-if control_mode == "🤖 Autonomous Agent":
-    # 2. AGENT LEARNS FROM RESULT
+if is_agent:
+    # 3. AGENT LEARNS FROM RESULT
     log_msg = st.session_state.agent_brain.learn(capex_efficiency, [capex_pref, redundancy_pref])
     
     # Update log only if message is meaningful
@@ -317,8 +318,8 @@ if control_mode == "🤖 Autonomous Agent":
 # --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v23: ADAPTIVE ARCHITECT")
-    mode_label = "AUTONOMOUS" if control_mode == "🤖 Autonomous Agent" else "MANUAL"
+    st.markdown("### 🕸️ NET-OPT v24: GHOST UI")
+    mode_label = "AUTONOMOUS" if is_agent else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
 # DYNAMIC ANALYST REPORT
@@ -387,14 +388,14 @@ with col_vis2:
 
 # 3. TELEMETRY / AGENT TERMINAL
 with col_stats:
-    if control_mode == "🤖 Autonomous Agent":
+    if is_agent:
         st.markdown("**3. AGENT THINKING PROCESS**")
         log_html = "<div class='agent-terminal'>"
         for line in st.session_state.agent_log:
             log_html += f"> {line}<br>"
         log_html += "<span style='animation: blink 1s infinite;'>_</span></div>"
         st.markdown(log_html, unsafe_allow_html=True)
-        st.caption("Real-time decision log. Agent auto-calibrates baseline after repeated failures.")
+        st.caption("Real-time decision log. Agent servos locked to session state.")
     else:
         st.markdown("**3. COST CONVERGENCE**")
         st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
