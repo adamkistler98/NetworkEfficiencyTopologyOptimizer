@@ -6,15 +6,16 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.ndimage import gaussian_filter
 import pandas as pd
 import time
+import random
 
 # --- 1. THE NUCLEAR OPTION: GLOBAL DARK PLOTTING ---
 plt.style.use('dark_background') 
 
 # --- 2. STEALTH CONFIGURATION ---
 st.set_page_config(
-    page_title="NetOpt v20: Stealth", 
+    page_title="NetOpt v21: Evolving", 
     layout="wide", 
-    page_icon="📉",
+    page_icon="🧠",
     initial_sidebar_state="expanded"
 )
 
@@ -32,7 +33,7 @@ st.markdown("""
     ul[data-baseweb="menu"], div[data-baseweb="popover"] { background-color: #080808 !important; border: 1px solid #333 !important; }
     li[data-baseweb="option"] { color: #00FF41 !important; }
     
-    /* STEALTH BUTTONS (Force Dark Theme) */
+    /* STEALTH BUTTONS */
     div.stButton > button {
         background-color: #0A0A0A !important;
         color: #00FF41 !important;
@@ -42,10 +43,6 @@ st.markdown("""
         background-color: #1A1A1A !important;
         border: 1px solid #00FF41 !important;
         color: #00FF41 !important;
-    }
-    div.stButton > button:active {
-        background-color: #00FF41 !important;
-        color: #000000 !important;
     }
     
     /* TEXT & METRICS */
@@ -141,33 +138,75 @@ class BioEngine:
         # DECAY
         self.trail_map = gaussian_filter(self.trail_map, sigma=0.6) * decay
 
-# --- 5. STATE MANAGEMENT ---
-if 'engine_v20' not in st.session_state:
-    st.session_state.engine_v20 = None
+# --- 5. THE EVOLVING AGENT BRAIN ---
+class EvolvingAgent:
+    def __init__(self):
+        # Initial State [CAPEX, REDUNDANCY]
+        self.current_params = [0.8, 0.7] 
+        self.best_params = [0.8, 0.7]
+        self.best_score = 0
+        self.learning_rate = 0.05
+        self.history = []
+        
+    def propose_action(self):
+        # Hill Climbing: Jitter the parameters slightly
+        # 50% chance to modify CAPEX, 50% chance to modify Redundancy
+        action_idx = random.choice([0, 1])
+        change = random.choice([-self.learning_rate, self.learning_rate])
+        
+        # Create candidate
+        candidate = self.current_params.copy()
+        candidate[action_idx] += change
+        
+        # Clamp values
+        candidate[0] = max(0.1, min(0.99, candidate[0])) # Capex
+        candidate[1] = max(0.1, min(1.5, candidate[1]))  # Redundancy
+        
+        return candidate
+
+    def learn(self, efficiency_score, candidate_params):
+        # Did we improve?
+        msg = ""
+        if efficiency_score > self.best_score:
+            improvement = efficiency_score - self.best_score
+            self.best_score = efficiency_score
+            self.best_params = candidate_params
+            self.current_params = candidate_params # Accept new state
+            msg = f"SUCCESS: Efficiency +{int(improvement)}%. Locking new vector."
+        else:
+            # Revert to best known state (Don't accept bad move)
+            self.current_params = self.best_params
+            msg = f"FAIL: Efficiency dropped to {int(efficiency_score)}%. Reverting."
+            
+        self.history.append((candidate_params, efficiency_score))
+        return msg
+
+# --- 6. STATE MANAGEMENT ---
+if 'engine_v21' not in st.session_state:
+    st.session_state.engine_v21 = None
 if 'nodes' not in st.session_state:
     st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
 if 'history' not in st.session_state:
     st.session_state.history = []
 if 'agent_log' not in st.session_state:
-    st.session_state.agent_log = ["Agent initialized. Waiting for command..."]
-if 'agent_active' not in st.session_state:
-    st.session_state.agent_active = False
+    st.session_state.agent_log = ["Agent initialized. Awaiting feedback loop..."]
+if 'agent_brain' not in st.session_state:
+    st.session_state.agent_brain = EvolvingAgent()
 
-# --- 6. SIDEBAR CONTROLS ---
+# --- 7. SIDEBAR CONTROLS ---
 st.sidebar.markdown("### 🎛️ CONTROL PLANE")
 control_mode = st.sidebar.radio("Operation Mode", ["Manual Operator", "🤖 Autonomous Agent"], horizontal=True)
 
 # 1. SCENARIO CUSTOMIZATION
 st.sidebar.markdown("#### 1. NETWORK SCALE")
-# v18 Feature: Dynamic Node Count
 node_count = st.sidebar.slider("Number of Data Centers", 3, 15, len(st.session_state.nodes))
 reshuffle = st.sidebar.button("🎲 Reshuffle Locations")
 
 if reshuffle or len(st.session_state.nodes) != node_count:
-    st.session_state.engine_v20 = None
+    st.session_state.engine_v21 = None
     st.session_state.history = []
-    st.session_state.agent_active = False
-    st.session_state.agent_log = [f"Network resized to {node_count} nodes. Agent standing by."]
+    st.session_state.agent_log = [f"Network resized to {node_count} nodes. Memory wiped."]
+    st.session_state.agent_brain = EvolvingAgent() # Reset brain on new map
     
     # GENERATE RANDOM NODES
     new_nodes = []
@@ -178,9 +217,9 @@ if reshuffle or len(st.session_state.nodes) != node_count:
 
 preset = st.sidebar.selectbox("Load Preset", ["Diamond (Regional)", "Pentagon Ring", "Grid (Urban)", "Hub-Spoke (Enterprise)"])
 if st.sidebar.button("⚠️ LOAD PRESET"):
-    st.session_state.engine_v20 = None
+    st.session_state.engine_v21 = None
     st.session_state.history = []
-    st.session_state.agent_active = False
+    st.session_state.agent_brain = EvolvingAgent()
     if preset == "Diamond (Regional)":
         st.session_state.nodes = [[150, 50], [250, 150], [150, 250], [50, 150]]
     elif preset == "Pentagon Ring":
@@ -206,35 +245,15 @@ if control_mode == "Manual Operator":
     latency_pref = st.sidebar.slider("Speed (C)", 1.0, 5.0, 2.0)
     terrain_diff = st.sidebar.slider("Noise", 0.05, 0.5, 0.1)
     
-    st.session_state.agent_active = False
-
 else: # AGENT MODE
     st.sidebar.markdown("#### 2. AGENT OBJECTIVES")
-    st.sidebar.info(f"Agent managing {len(st.session_state.nodes)} nodes. Target Efficiency > 85%.")
-    traffic_load = 5000 # Agent Standard
+    st.sidebar.info(f"Agent managing {len(st.session_state.nodes)} nodes. Evolving solution...")
+    traffic_load = 5000 
     
-    # AGENT LOGIC SIMULATION
-    if not st.session_state.agent_active:
-        st.session_state.agent_log.append("Agent: Taking control of parameters...")
-        st.session_state.agent_log.append(f"Agent: Analyzing topology complexity...")
-        st.session_state.agent_active = True
-    
-    # Dynamic Agent Decisions (Simulated for visual effect)
-    import time
-    epoch = int(time.time()) % 3
-    if epoch == 0:
-        capex_pref, redundancy_pref = 0.9, 0.6
-        status = "Agent: Testing Low-Cost Vector..."
-    elif epoch == 1:
-        capex_pref, redundancy_pref = 0.7, 0.9
-        status = "Agent: Testing Redundancy Vector..."
-    else:
-        capex_pref, redundancy_pref = 0.8, 0.7
-        status = "Agent: Refining Optimal Solution..."
-        
-    if status != st.session_state.agent_log[-1]:
-        st.session_state.agent_log.append(status)
-        if len(st.session_state.agent_log) > 6: st.session_state.agent_log.pop(0)
+    # 1. AGENT PROPOSES PARAMETERS
+    proposed_params = st.session_state.agent_brain.propose_action()
+    capex_pref = proposed_params[0]
+    redundancy_pref = proposed_params[1]
     
     # Fixed Physics for Agent
     latency_pref = 3.0
@@ -244,10 +263,10 @@ else: # AGENT MODE
 decay = 0.90 + (0.09 * (1.0 - capex_pref))
 
 # --- 7. INITIALIZE ---
-if st.session_state.engine_v20 is None or st.session_state.engine_v20.num_agents != traffic_load:
-    st.session_state.engine_v20 = BioEngine(300, 300, traffic_load)
+if st.session_state.engine_v21 is None or st.session_state.engine_v21.num_agents != traffic_load:
+    st.session_state.engine_v21 = BioEngine(300, 300, traffic_load)
 
-engine = st.session_state.engine_v20
+engine = st.session_state.engine_v21
 nodes_arr = np.array(st.session_state.nodes)
 
 # RUN LOOP
@@ -264,10 +283,20 @@ else:
 cable_volume = np.sum(engine.trail_map > 1.0) / 10.0
 capex_efficiency = min(100, (mst_cost / (cable_volume + 1)) * 100)
 
-# --- 9. DASHBOARD UI ---
+# --- 9. AGENT LEARNING (FEEDBACK LOOP) ---
+if control_mode == "🤖 Autonomous Agent":
+    # 2. AGENT LEARNS FROM RESULT
+    log_msg = st.session_state.agent_brain.learn(capex_efficiency, [capex_pref, redundancy_pref])
+    
+    # Update log only if message changed (avoid spam)
+    if not st.session_state.agent_log or st.session_state.agent_log[-1] != f"Agent: {log_msg}":
+        st.session_state.agent_log.append(f"Agent: {log_msg}")
+        if len(st.session_state.agent_log) > 6: st.session_state.agent_log.pop(0)
+
+# --- 10. DASHBOARD UI ---
 c1, c2 = st.columns([3, 1])
 with c1:
-    st.markdown("### 🕸️ NET-OPT v20: CUSTOM ARCHITECT")
+    st.markdown("### 🕸️ NET-OPT v21: SELF-EVOLVING ARCHITECT")
     mode_label = "AUTONOMOUS" if control_mode == "🤖 Autonomous Agent" else "MANUAL"
     st.caption(f"OPTIMIZATION TARGET: STEINER TREE APPROXIMATION | MODE: {mode_label}")
 
@@ -295,7 +324,7 @@ m3.metric("PROPOSED FIBER", f"{int(cable_volume)} km", delta=f"{int(cable_volume
 m4.metric("PHYSICS C", f"{latency_pref}x")
 m5.metric("EFFICIENCY", f"{int(capex_efficiency)}%")
 
-# --- 10. VISUALIZATION TRIFECTA ---
+# --- 11. VISUALIZATION TRIFECTA ---
 col_vis1, col_vis2, col_stats = st.columns([1, 1, 1.2])
 
 # 1. BIOLOGICAL SOLVER
@@ -344,7 +373,7 @@ with col_stats:
             log_html += f"> {line}<br>"
         log_html += "<span style='animation: blink 1s infinite;'>_</span></div>"
         st.markdown(log_html, unsafe_allow_html=True)
-        st.caption("Real-time decision log of the autonomous optimization agent.")
+        st.caption("Real-time decision log. Agent uses Hill-Climbing AI to self-optimize.")
     else:
         st.markdown("**3. COST CONVERGENCE**")
         st.session_state.history.append({"MST Baseline": float(mst_cost), "Bio-Solver": float(cable_volume)})
